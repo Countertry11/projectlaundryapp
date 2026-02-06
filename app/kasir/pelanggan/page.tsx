@@ -21,6 +21,7 @@ interface Customer {
   address: string;
   gender: string;
   phone: string;
+  is_member: boolean;
 }
 
 export default function PelangganPage() {
@@ -37,6 +38,7 @@ export default function PelangganPage() {
     address: "",
     gender: "L",
     phone: "",
+    is_member: true,
   });
 
   useEffect(() => {
@@ -78,6 +80,7 @@ export default function PelangganPage() {
             address: formData.address,
             gender: formData.gender,
             phone: formData.phone,
+            is_member: formData.is_member,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editingId);
@@ -92,7 +95,7 @@ export default function PelangganPage() {
             address: formData.address,
             gender: formData.gender,
             phone: formData.phone,
-            is_member: true,
+            is_member: formData.is_member,
             total_transactions: 0,
             total_spent: 0,
           },
@@ -131,12 +134,19 @@ export default function PelangganPage() {
       address: customer.address || "",
       gender: customer.gender || "L",
       phone: customer.phone || "",
+      is_member: customer.is_member ?? true,
     });
     setIsModalOpen(true);
   }
 
   function resetForm() {
-    setFormData({ name: "", address: "", gender: "L", phone: "" });
+    setFormData({
+      name: "",
+      address: "",
+      gender: "L",
+      phone: "",
+      is_member: true,
+    });
     setEditingId(null);
   }
 
@@ -230,9 +240,16 @@ export default function PelangganPage() {
                   >
                     <td className="px-6 py-5">
                       <div className="flex flex-col">
-                        <span className="font-bold text-gray-800 text-sm tracking-tight">
-                          {customer.name}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-800 text-sm tracking-tight">
+                            {customer.name}
+                          </span>
+                          {customer.is_member && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase rounded-full">
+                              Member
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
                           <MapPin size={10} /> {customer.address || "-"}
                         </span>
@@ -385,6 +402,26 @@ export default function PelangganPage() {
                   }
                   className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-xl px-4 py-3 text-sm font-semibold outline-none transition-all"
                 />
+              </div>
+
+              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
+                <input
+                  type="checkbox"
+                  id="is_member"
+                  checked={formData.is_member}
+                  onChange={(e) =>
+                    setFormData({ ...formData, is_member: e.target.checked })
+                  }
+                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <label htmlFor="is_member" className="cursor-pointer">
+                  <span className="text-sm font-bold text-gray-700">
+                    Daftar sebagai Member
+                  </span>
+                  <p className="text-[11px] text-gray-400">
+                    Member mendapatkan diskon dan promo khusus
+                  </p>
+                </label>
               </div>
 
               <div className="flex gap-3 pt-2">

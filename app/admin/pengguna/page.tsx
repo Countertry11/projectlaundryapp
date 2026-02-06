@@ -12,11 +12,15 @@ import {
   Loader2,
   User,
   Save,
+  Store,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import { User as UserType } from "@/types";
+import { User as UserType, Outlet } from "@/types";
 
 export default function AdminUserPage() {
   const [users, setUsers] = useState<UserType[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -24,6 +28,7 @@ export default function AdminUserPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({
     full_name: "",
@@ -32,6 +37,7 @@ export default function AdminUserPage() {
     phone: "",
     email: "",
     role: "kasir" as "admin" | "kasir" | "owner",
+    outlet_id: "" as string,
   });
 
   useEffect(() => {
@@ -49,6 +55,14 @@ export default function AdminUserPage() {
 
       if (error) throw error;
       setUsers(data || []);
+
+      // Fetch outlets
+      const { data: outletData } = await supabase
+        .from("outlets")
+        .select("*")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+      setOutlets(outletData || []);
     } catch (error: any) {
       console.error("Gagal ambil data:", error.message);
     } finally {
@@ -64,6 +78,7 @@ export default function AdminUserPage() {
       phone: "",
       email: "",
       role: "kasir",
+      outlet_id: "",
     });
     setIsEditMode(false);
     setEditingId(null);
@@ -82,6 +97,7 @@ export default function AdminUserPage() {
       phone: user.phone || "",
       email: user.email || "",
       role: user.role,
+      outlet_id: (user as any).outlet_id || "",
     });
     setEditingId(user.id);
     setIsEditMode(true);
@@ -101,6 +117,10 @@ export default function AdminUserPage() {
           phone: formData.phone,
           email: formData.email,
           role: formData.role,
+          outlet_id:
+            formData.role === "kasir" && formData.outlet_id
+              ? formData.outlet_id
+              : null,
           updated_at: new Date().toISOString(),
         };
 
@@ -126,6 +146,10 @@ export default function AdminUserPage() {
             phone: formData.phone,
             email: formData.email,
             role: formData.role,
+            outlet_id:
+              formData.role === "kasir" && formData.outlet_id
+                ? formData.outlet_id
+                : null,
             is_active: true,
           },
         ]);
@@ -307,15 +331,16 @@ export default function AdminUserPage() {
       {/* Modal Add/Edit */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div className="flex justify-between items-center p-8 border-b border-slate-100">
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-300 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
+              <h2 className="text-xl font-black text-slate-800 tracking-tight">
                 {isEditMode ? "Edit Pengguna" : "Tambah Pengguna"}
               </h2>
               <button
                 onClick={() => {
                   setIsModalOpen(false);
                   resetForm();
+                  setShowPassword(false);
                 }}
                 className="text-slate-400 hover:text-rose-500 p-2 hover:bg-rose-50 rounded-full transition-all"
               >
@@ -323,15 +348,18 @@ export default function AdminUserPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-8 space-y-5">
-              <div className="space-y-2">
+            <form
+              onSubmit={handleSave}
+              className="p-6 space-y-4 overflow-y-auto flex-1"
+            >
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
                   Nama Lengkap *
                 </label>
                 <input
                   required
                   placeholder="Contoh: Admin Utama"
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.full_name}
                   onChange={(e) =>
                     setFormData({ ...formData, full_name: e.target.value })
@@ -339,14 +367,14 @@ export default function AdminUserPage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
                   Username *
                 </label>
                 <input
                   required
                   placeholder="Username login"
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.username}
                   onChange={(e) =>
                     setFormData({ ...formData, username: e.target.value })
@@ -354,21 +382,30 @@ export default function AdminUserPage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
                   Password{" "}
                   {isEditMode ? "(kosongkan jika tidak ingin mengubah)" : "*"}
                 </label>
-                <input
-                  required={!isEditMode}
-                  type="password"
-                  placeholder="••••••••"
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
-                  value={formData.password}
-                  onChange={(e) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
-                />
+                <div className="relative">
+                  <input
+                    required={!isEditMode}
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    className="w-full px-4 py-3 pr-12 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
+                    value={formData.password}
+                    onChange={(e) =>
+                      setFormData({ ...formData, password: e.target.value })
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -418,6 +455,33 @@ export default function AdminUserPage() {
                   }
                 />
               </div>
+
+              {/* Outlet Selection - Only for Kasir */}
+              {formData.role === "kasir" && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1 flex items-center gap-2">
+                    <Store size={12} /> Outlet Penugasan
+                  </label>
+                  <select
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm appearance-none font-bold text-slate-700"
+                    value={formData.outlet_id}
+                    onChange={(e) =>
+                      setFormData({ ...formData, outlet_id: e.target.value })
+                    }
+                  >
+                    <option value="">-- Pilih Outlet --</option>
+                    {outlets.map((outlet) => (
+                      <option key={outlet.id} value={outlet.id}>
+                        {outlet.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 ml-1">
+                    Kasir hanya dapat mengakses laporan dari outlet yang
+                    ditugaskan
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-4 pt-4">
                 <button

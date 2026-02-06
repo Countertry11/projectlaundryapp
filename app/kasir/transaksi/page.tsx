@@ -39,16 +39,19 @@ export default function TransaksiKasir() {
     customer_id: "",
     paket_id: "",
     qty: 1,
+    discount: 0,
     payment_status: "unpaid" as "unpaid" | "paid",
     status: "pending" as "pending" | "processing" | "ready" | "completed",
     notes: "",
   });
 
   const [selectedPackage, setSelectedPackage] = useState<Paket | null>(null);
+  const [userOutletId, setUserOutletId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
-  }, []);
+    fetchUserOutlet();
+  }, [user]);
 
   async function fetchData() {
     setLoading(true);
@@ -85,6 +88,20 @@ export default function TransaksiKasir() {
     }
   }
 
+  async function fetchUserOutlet() {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from("users")
+        .select("outlet_id")
+        .eq("id", user.id)
+        .single();
+      setUserOutletId(data?.outlet_id || null);
+    } catch (error) {
+      console.error("Error fetching user outlet:", error);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!formData.customer_id || !formData.paket_id) {
@@ -98,7 +115,9 @@ export default function TransaksiKasir() {
       const dueDate = new Date(
         Date.now() + 3 * 24 * 60 * 60 * 1000,
       ).toISOString();
-      const total = (selectedPackage?.harga || 0) * formData.qty;
+      const subtotal = (selectedPackage?.harga || 0) * formData.qty;
+      const discountAmount = subtotal * (formData.discount / 100);
+      const grandTotal = subtotal - discountAmount;
 
       const { data: trans, error: errTrans } = await supabase
         .from("transactions")
@@ -106,15 +125,16 @@ export default function TransaksiKasir() {
           {
             customer_id: formData.customer_id,
             kasir_id: user?.id,
+            outlet_id: userOutletId,
             invoice_number: invoiceNumber,
             transaction_date: new Date().toISOString(),
             due_date: dueDate,
             status: formData.status,
             payment_status: formData.payment_status,
-            total_amount: total,
-            discount: 0,
+            total_amount: subtotal,
+            discount: formData.discount,
             tax: 0,
-            grand_total: total,
+            grand_total: grandTotal,
             notes: formData.notes,
           },
         ])
@@ -142,6 +162,7 @@ export default function TransaksiKasir() {
         customer_id: "",
         paket_id: "",
         qty: 1,
+        discount: 0,
         payment_status: "unpaid",
         status: "pending",
         notes: "",
@@ -202,10 +223,20 @@ export default function TransaksiKasir() {
   const statusLabels: Record<string, string> = {
     pending: "Baru",
     processing: "Proses",
-    ready: "Siap",
-    completed: "Selesai",
+    ready: "Selesai",
+    completed: "Diambil",
     cancelled: "Batal",
   };
+
+  // Status order for sequential flow
+  const statusOrder = ["pending", "processing", "ready", "completed"];
+
+  function getAvailableStatuses(currentStatus: string) {
+    const currentIndex = statusOrder.indexOf(currentStatus);
+    if (currentIndex === -1) return statusOrder;
+    // Return current status and all statuses after it
+    return statusOrder.slice(currentIndex);
+  }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] p-6 space-y-6 font-sans text-slate-800">
@@ -306,12 +337,14 @@ export default function TransaksiKasir() {
                         <select
                           value={trx.status}
                           onChange={(e) => updateStatus(trx.id, e.target.value)}
-                          className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border cursor-pointer ${statusColors[trx.status] || statusColors.pending}`}
+                          disabled={trx.status === "completed"}
+                          className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border cursor-pointer ${statusColors[trx.status] || statusColors.pending} ${trx.status === "completed" ? "opacity-60 cursor-not-allowed" : ""}`}
                         >
-                          <option value="pending">Baru</option>
-                          <option value="processing">Proses</option>
-                          <option value="ready">Siap Ambil</option>
-                          <option value="completed">Selesai</option>
+                          {getAvailableStatuses(trx.status).map((status) => (
+                            <option key={status} value={status}>
+                              {statusLabels[status]}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     </td>
@@ -322,14 +355,21 @@ export default function TransaksiKasir() {
                           onChange={(e) =>
                             updatePaymentStatus(trx.id, e.target.value)
                           }
+                          disabled={trx.payment_status === "paid"}
                           className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border cursor-pointer ${
                             trx.payment_status === "paid"
-                              ? "bg-green-50 text-green-600 border-green-100"
+                              ? "bg-green-50 text-green-600 border-green-100 opacity-60 cursor-not-allowed"
                               : "bg-red-50 text-red-600 border-red-100"
                           }`}
                         >
-                          <option value="unpaid">Belum Bayar</option>
-                          <option value="paid">Lunas</option>
+                          {trx.payment_status === "paid" ? (
+                            <option value="paid">Lunas</option>
+                          ) : (
+                            <>
+                              <option value="unpaid">Belum Bayar</option>
+                              <option value="paid">Lunas</option>
+                            </>
+                          )}
                         </select>
                       </div>
                     </td>
@@ -362,8 +402,8 @@ export default function TransaksiKasir() {
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             onClick={() => setIsModalOpen(false)}
           ></div>
-          <div className="relative bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden">
-            <div className="p-8 border-b border-gray-50 flex items-center justify-between">
+          <div className="relative bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-gray-50 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
                   <Plus size={20} />
@@ -382,7 +422,7 @@ export default function TransaksiKasir() {
 
             <form
               onSubmit={handleSubmit}
-              className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6"
+              className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto flex-1"
             >
               {/* Pelanggan */}
               <div className="space-y-1.5 col-span-2">
@@ -501,17 +541,64 @@ export default function TransaksiKasir() {
                 </select>
               </div>
 
+              {/* Discount */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                  Diskon (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all"
+                  placeholder="0"
+                  value={formData.discount}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      discount: Math.min(
+                        100,
+                        Math.max(0, Number(e.target.value)),
+                      ),
+                    })
+                  }
+                />
+              </div>
+
               {/* Total Display */}
               {selectedPackage && (
-                <div className="col-span-2 bg-blue-50 p-4 rounded-2xl">
-                  <p className="text-sm text-blue-600">
-                    <span className="font-medium">Total: </span>
-                    <span className="font-black text-lg">
+                <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Subtotal:</span>
+                    <span className="font-semibold">
                       {formatRupiah(
                         (selectedPackage.harga || 0) * formData.qty,
                       )}
                     </span>
-                  </p>
+                  </div>
+                  {formData.discount > 0 && (
+                    <div className="flex justify-between text-sm text-green-600">
+                      <span>Diskon ({formData.discount}%):</span>
+                      <span className="font-semibold">
+                        -{" "}
+                        {formatRupiah(
+                          (selectedPackage.harga || 0) *
+                            formData.qty *
+                            (formData.discount / 100),
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-blue-700 pt-2 border-t border-blue-100">
+                    <span className="font-bold">Grand Total:</span>
+                    <span className="font-black text-lg">
+                      {formatRupiah(
+                        (selectedPackage.harga || 0) *
+                          formData.qty *
+                          (1 - formData.discount / 100),
+                      )}
+                    </span>
+                  </div>
                 </div>
               )}
 
