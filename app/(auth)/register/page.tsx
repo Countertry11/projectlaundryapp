@@ -35,12 +35,12 @@ export default function RegisterKasirPage() {
         }
 
         if (formData.password.length < 6) {
-            setError("Password minimal 6 karakter");
+            setError("Kata Sandi minimal 6 karakter");
             return;
         }
 
         if (formData.username.length < 3) {
-            setError("Username minimal 3 karakter");
+            setError("Nama pengguna minimal 3 karakter");
             return;
         }
 
@@ -167,7 +167,7 @@ export default function RegisterKasirPage() {
                         {/* Username */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-800 mb-2 ml-1">
-                                Username <span className="text-red-500">*</span>
+                                Nama Pengguna <span className="text-red-500">*</span>
                             </label>
                             <div className="relative group">
                                 <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors w-5 h-5" />
@@ -176,7 +176,7 @@ export default function RegisterKasirPage() {
                                     name="username"
                                     value={formData.username}
                                     onChange={handleChange}
-                                    placeholder="Masukkan username"
+                                    placeholder="Masukkan Nama Pengguna"
                                     className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:bg-white outline-none transition-all text-gray-900"
                                     required
                                     disabled={isSubmitting}

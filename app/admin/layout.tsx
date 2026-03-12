@@ -37,30 +37,6 @@ export default function AdminLayout({
 
       {/* Main Content Area */}
       <div className="ml-64 flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-white h-16 shadow-sm flex items-center justify-end px-8 sticky top-0 z-10">
-          <div className="flex items-center gap-6">
-            {/* Profile Section */}
-            <div className="flex items-center gap-4">
-              <div className="text-left hidden sm:block">
-                <p className="text-sm font-bold text-gray-700 leading-none mb-1">
-                  {user.full_name}
-                </p>
-                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">
-                  {user.role}
-                </p>
-              </div>
-              <div className="h-10 w-10 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-lg shadow-blue-100 ring-2 ring-white">
-                {user.full_name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .substring(0, 2)
-                  .toUpperCase()}
-              </div>
-            </div>
-          </div>
-        </header>
 
         {/* Dynamic Content */}
         <main className="p-8">{children}</main>

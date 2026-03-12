@@ -64,7 +64,11 @@ export default function KasirDashboardPage() {
       });
 
       setStats({ pending, ready, processing, totalRevenue: revenue });
-      setTransactions(transData || []);
+      const formattedTransactions = (transData || []).map((trans: any) => ({
+        ...trans,
+        customer: Array.isArray(trans.customer) ? trans.customer[0] || null : trans.customer,
+      }));
+      setTransactions(formattedTransactions);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
