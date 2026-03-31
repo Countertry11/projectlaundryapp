@@ -15,7 +15,6 @@ import {
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import Link from "next/link";
 import { AnimatedItem, AnimatedPage } from "@/components/AnimatedPage";
 
 // Constants
@@ -356,18 +355,6 @@ export default function LoginPage() {
               </AnimatedItem>
             </form>
 
-            {/* Register Link */}
-            <AnimatedItem index={10} className="mt-6 text-center">
-              <p className="text-gray-400 text-sm">
-                Belum punya akun Kasir?{" "}
-                <Link
-                  href="/register"
-                  className="text-blue-600 font-semibold hover:text-blue-700 hover:underline hover:underline-offset-2 transition-all focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                >
-                  Daftar Sebagai Kasir
-                </Link>
-              </p>
-            </AnimatedItem>
           </div>
         </div>
       </div>

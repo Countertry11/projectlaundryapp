@@ -1,4 +1,8 @@
 import { supabase } from "@/lib/supabase";
+import {
+  getNotificationErrorMessage,
+  shouldSilenceNotificationError,
+} from "@/lib/notificationServiceError.mjs";
 
 export interface Notification {
   id: string;
@@ -8,6 +12,15 @@ export interface Notification {
   type: "info" | "success" | "warning" | "error";
   is_read: boolean;
   created_at: string;
+}
+
+function handleNotificationError(action: string, error: unknown) {
+  if (shouldSilenceNotificationError(error)) {
+    return;
+  }
+
+  const message = getNotificationErrorMessage(error) || "Terjadi kesalahan notifikasi.";
+  console.warn(`Notification service warning (${action}): ${message}`);
 }
 
 // Fetch semua notifikasi untuk user tertentu
@@ -20,7 +33,7 @@ export async function fetchNotifications(userId: string): Promise<Notification[]
     .limit(20);
 
   if (error) {
-    console.error("Error fetching notifications:", error);
+    handleNotificationError("fetchNotifications", error);
     return [];
   }
   return (data as Notification[]) || [];
@@ -35,7 +48,7 @@ export async function fetchUnreadCount(userId: string): Promise<number> {
     .eq("is_read", false);
 
   if (error) {
-    console.error("Error fetching unread count:", error);
+    handleNotificationError("fetchUnreadCount", error);
     return 0;
   }
   return count || 0;
@@ -49,7 +62,7 @@ export async function markAsRead(notificationId: string): Promise<boolean> {
     .eq("id", notificationId);
 
   if (error) {
-    console.error("Error marking notification as read:", error);
+    handleNotificationError("markAsRead", error);
     return false;
   }
   return true;
@@ -64,7 +77,7 @@ export async function markAllAsRead(userId: string): Promise<boolean> {
     .eq("is_read", false);
 
   if (error) {
-    console.error("Error marking all as read:", error);
+    handleNotificationError("markAllAsRead", error);
     return false;
   }
   return true;
@@ -78,7 +91,7 @@ export async function deleteNotification(notificationId: string): Promise<boolea
     .eq("id", notificationId);
 
   if (error) {
-    console.error("Error deleting notification:", error);
+    handleNotificationError("deleteNotification", error);
     return false;
   }
   return true;

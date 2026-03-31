@@ -14,7 +14,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertCircle,
-  Menu,
   Store,
   Search,
 } from "lucide-react";
@@ -29,7 +28,6 @@ import {
   subscribeToNotifications,
 } from "@/services/notificationService";
 import { AnimatedItem } from "@/components/AnimatedPage";
-import Link from "next/link";
 
 // Mapping nama halaman untuk breadcrumb
 const PAGE_LABELS: Record<string, string> = {
@@ -86,6 +84,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const { user } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const currentUserId = user?.id || "";
 
   // Notification state
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -182,11 +181,11 @@ export default function Navbar() {
 
   // Handler: tandai semua dibaca
   const handleMarkAllAsRead = useCallback(async () => {
-    if (!user?.id) return;
-    await markAllAsRead(user.id);
+    if (!currentUserId) return;
+    await markAllAsRead(currentUserId);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
-  }, [user?.id]);
+  }, [currentUserId]);
 
   // Handler: hapus notifikasi
   const handleDelete = useCallback(async (notifId: string, isRead: boolean) => {
@@ -286,7 +285,7 @@ export default function Navbar() {
         <div className="w-px h-6 bg-gray-200 hidden md:block mx-1"></div>
 
         {/* Notification Bell */}
-        <div className="relative animate-scaleIn" style={{ animationDelay: '300ms' }}>
+        <div className="relative hidden animate-scaleIn" style={{ animationDelay: '300ms' }}>
           <button
             ref={bellButtonRef}
             onClick={() => setShowNotifPanel(!showNotifPanel)}
