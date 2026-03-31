@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Outlet } from "@/types";
+import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
+import { sanitizePhoneNumber } from "@/utils";
 
 export default function OutletPage() {
   const [outlets, setOutlets] = useState<Outlet[]>([]);
@@ -71,7 +73,7 @@ export default function OutletPage() {
     setFormData({
       name: outlet.name || "",
       address: outlet.address || "",
-      phone: outlet.phone || "",
+      phone: sanitizePhoneNumber(outlet.phone),
       email: outlet.email || "",
       manager: outlet.manager || "",
     });
@@ -83,6 +85,7 @@ export default function OutletPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    const sanitizedPhone = sanitizePhoneNumber(formData.phone);
 
     try {
       if (isEditMode && editingId) {
@@ -90,6 +93,7 @@ export default function OutletPage() {
           .from("outlets")
           .update({
             ...formData,
+            phone: sanitizedPhone,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editingId);
@@ -100,6 +104,7 @@ export default function OutletPage() {
         const { error } = await supabase.from("outlets").insert([
           {
             ...formData,
+            phone: sanitizedPhone,
             is_active: true,
           },
         ]);
@@ -139,24 +144,24 @@ export default function OutletPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
+    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
       {/* Header Card */}
-      <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+      <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 animate-fadeInUp">
         <div className="flex items-center gap-4 self-start">
-          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center animate-scaleIn" style={{ animationDelay: '100ms' }}>
             <Store className="text-white" size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">
-              Manajemen Outlet
+            <h1 className="text-2xl font-bold text-slate-800 animate-slideInRight" style={{ animationDelay: '200ms' }}>
+              Manajemen Toko
             </h1>
-            <p className="text-slate-500 text-sm">
+            <p className="text-slate-500 text-sm animate-slideInRight" style={{ animationDelay: '300ms' }}>
               Kelola lokasi cabang laundry
             </p>
           </div>
         </div>
 
-        <div className="flex gap-4 w-full md:w-auto">
+        <div className="flex gap-4 w-full md:w-auto animate-fadeInUp" style={{ animationDelay: '400ms' }}>
           <div className="relative flex-1 md:w-64">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -164,8 +169,8 @@ export default function OutletPage() {
             />
             <input
               type="text"
-              placeholder="Cari outlet..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              placeholder="Cari Toko..."
+              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -185,7 +190,11 @@ export default function OutletPage() {
           <Loader2 className="animate-spin text-blue-500" size={40} />
         </div>
       ) : (
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <StaggeredList 
+          className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+          animation="scaleIn"
+          staggerDelay={100}
+        >
           {filteredOutlets.length > 0 ? (
             filteredOutlets.map((item) => (
               <div
@@ -199,13 +208,13 @@ export default function OutletPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => openEditModal(item)}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                      className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
                     >
                       <Edit3 size={16} />
                     </button>
                     <button
                       onClick={() => setDeleteConfirm(item.id)}
-                      className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                      className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -221,22 +230,17 @@ export default function OutletPage() {
                   <p className="flex items-center gap-2">
                     <Phone size={14} /> {item.phone || "-"}
                   </p>
-                  {item.manager && (
-                    <p className="flex items-center gap-2 text-blue-600 font-medium">
-                      <Building2 size={14} /> Manager: {item.manager}
-                    </p>
-                  )}
                 </div>
               </div>
             ))
           ) : (
-            <div className="col-span-full p-10 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-slate-400">
+            <div className="col-span-full p-10 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-slate-400 animate-fadeInUp">
               {searchTerm
                 ? "Tidak ada outlet yang cocok dengan pencarian."
                 : 'Belum ada data outlet. Klik "Tambah Outlet" untuk mengisi.'}
             </div>
           )}
-        </div>
+        </StaggeredList>
       )}
 
       {/* Modal Add/Edit */}
@@ -246,7 +250,7 @@ export default function OutletPage() {
             <div className="flex justify-between items-center p-8 border-b border-slate-100">
               <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
                 <Building2 className="text-blue-600" size={24} />
-                {isEditMode ? "Edit Outlet" : "Tambah Outlet"}
+                {isEditMode ? "Edit Toko" : "Tambah Toko"}
               </h2>
               <button
                 onClick={() => {
@@ -262,7 +266,7 @@ export default function OutletPage() {
             <form onSubmit={handleSubmit} className="p-8 space-y-5">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Nama Outlet *
+                  Nama Toko *
                 </label>
                 <input
                   required
@@ -280,11 +284,18 @@ export default function OutletPage() {
                   No. Telepon
                 </label>
                 <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="tel"
                   placeholder="08xxxxxxxxxx"
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.phone}
                   onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
+                    setFormData({
+                      ...formData,
+                      phone: sanitizePhoneNumber(e.target.value),
+                    })
                   }
                 />
               </div>
@@ -295,25 +306,11 @@ export default function OutletPage() {
                 </label>
                 <input
                   type="email"
-                  placeholder="outlet@laundry.com"
+                  placeholder="toko@laundry.com"
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.email}
                   onChange={(e) =>
                     setFormData({ ...formData, email: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Manager
-                </label>
-                <input
-                  placeholder="Nama manager"
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
-                  value={formData.manager}
-                  onChange={(e) =>
-                    setFormData({ ...formData, manager: e.target.value })
                   }
                 />
               </div>
@@ -355,7 +352,7 @@ export default function OutletPage() {
                   ) : (
                     <Save size={16} />
                   )}
-                  {isEditMode ? "Update" : "Simpan"}
+                  {isEditMode ? "Perbarui" : "Simpan"}
                 </button>
               </div>
             </form>
@@ -366,26 +363,26 @@ export default function OutletPage() {
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center animate-in fade-in zoom-in duration-300">
             <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 className="text-rose-600" size={32} />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">
-              Hapus Outlet?
+              Hapus Toko?
             </h3>
             <p className="text-slate-500 text-sm mb-6">
-              Outlet akan dinonaktifkan dari sistem.
+              Toko akan dinonaktifkan dari sistem.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50"
+                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Batal
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700"
+                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all"
               >
                 Ya, Hapus
               </button>
@@ -393,6 +390,6 @@ export default function OutletPage() {
           </div>
         </div>
       )}
-    </div>
+    </AnimatedPage>
   );
 }

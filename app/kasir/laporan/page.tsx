@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
+import { AnimatedPage } from "@/components/AnimatedPage";
 import Table from "@/components/table";
 import Card, { StatsCard } from "@/components/card";
 
@@ -165,25 +166,25 @@ export default function LaporanKasirPage() {
   // If no outlet assigned
   if (!loading && noOutletAssigned) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+      <AnimatedPage className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center max-w-md">
           <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="text-amber-600" size={32} />
           </div>
           <h2 className="text-xl font-bold text-gray-800 mb-2">
-            Belum Ada Outlet Ditugaskan
+            Belum Ada Toko Ditugaskan
           </h2>
           <p className="text-gray-500 text-sm">
-            Anda belum ditugaskan ke outlet manapun. Silakan hubungi Admin untuk
-            mendapatkan penugasan outlet.
+            Anda belum ditugaskan ke toko manapun. Silakan hubungi Admin untuk
+            mendapatkan penugasan toko.
           </p>
         </div>
-      </div>
+      </AnimatedPage>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 space-y-6">
+    <AnimatedPage className="min-h-screen bg-gray-50 p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Laporan Kasir</h1>
@@ -238,6 +239,6 @@ export default function LaporanKasirPage() {
           />
         )}
       </Card>
-    </div>
+    </AnimatedPage>
   );
 }

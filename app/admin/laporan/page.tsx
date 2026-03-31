@@ -16,6 +16,7 @@ import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
 import Table from "@/components/table";
 import Card from "@/components/card";
+import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
 
 interface LaporanHarian {
   tanggal: string;
@@ -175,28 +176,28 @@ export default function LaporanAdminPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 md:p-10 font-sans">
+    <AnimatedPage className="min-h-screen bg-gray-50 p-6 md:p-10 font-sans">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* HEADER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
             <button
               onClick={() => router.back()}
-              className="p-3 bg-white rounded-2xl shadow-sm border border-gray-100 hover:bg-gray-50 transition-all text-gray-400 hover:text-blue-600"
+              className="p-3 bg-white rounded-2xl shadow-sm border border-gray-100 hover:bg-gray-50 transition-all text-gray-400 hover:text-blue-600 animate-scaleIn"
             >
               <FaArrowLeft size={18} />
             </button>
             <div>
-              <h1 className="text-3xl font-black text-gray-800 tracking-tight">
+              <h1 className="text-3xl font-black text-gray-800 tracking-tight animate-slideInRight" style={{ animationDelay: '100ms' }}>
                 Rekapitulasi Laporan
               </h1>
-              <p className="text-gray-500 font-medium italic">
+              <p className="text-gray-500 font-medium italic animate-slideInRight" style={{ animationDelay: '200ms' }}>
                 Aplikasi Pengelolaan Laundry UKK
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 animate-fadeInUp" style={{ animationDelay: '300ms' }}>
             {/* Filter Cabang */}
             <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-2xl border border-gray-100 shadow-sm">
               <FaStore className="text-blue-500" />
@@ -231,7 +232,7 @@ export default function LaporanAdminPage() {
         </div>
 
         {/* STATS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <StaggeredList className="grid grid-cols-1 md:grid-cols-2 gap-6" animation="scaleIn" staggerDelay={100}>
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between group hover:border-blue-200 transition-all">
             <div>
               <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">
@@ -260,27 +261,29 @@ export default function LaporanAdminPage() {
               <FaCalendar size={28} />
             </div>
           </div>
-        </div>
+        </StaggeredList>
 
         {/* TABLE */}
-        <Card
-          icon={<FaCalendarAlt className="text-blue-600" />}
-          title="Detail Laporan Harian"
-          noPadding
-          className="rounded-3xl shadow-xl overflow-hidden border-none"
-        >
-          {loading ? (
-            <div className="py-20 flex justify-center">
-              <Loader2 className="animate-spin text-blue-500" size={40} />
-            </div>
-          ) : (
-            <Table
-              data={laporanHarian}
-              columns={columnsHarian}
-              emptyMessage="Belum ada data transaksi"
-            />
-          )}
-        </Card>
+        <AnimatedItem animation="fadeInUp" style={{ animationDelay: '500ms' }}>
+          <Card
+            icon={<FaCalendarAlt className="text-blue-600" />}
+            title="Detail Laporan Harian"
+            noPadding
+            className="rounded-3xl shadow-xl overflow-hidden border-none"
+          >
+            {loading ? (
+              <div className="py-20 flex justify-center">
+                <Loader2 className="animate-spin text-blue-500" size={40} />
+              </div>
+            ) : (
+              <Table
+                data={laporanHarian}
+                columns={columnsHarian}
+                emptyMessage="Belum ada data transaksi"
+              />
+            )}
+          </Card>
+        </AnimatedItem>
 
         <footer className="text-center pt-10 pb-4">
           <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.6em]">
@@ -288,6 +291,6 @@ export default function LaporanAdminPage() {
           </p>
         </footer>
       </div>
-    </div>
+    </AnimatedPage>
   );
 }

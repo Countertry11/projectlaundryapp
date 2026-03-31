@@ -17,6 +17,20 @@ import {
   EyeOff,
 } from "lucide-react";
 import { User as UserType, Outlet } from "@/types";
+import { AnimatedPage, AnimatedItem } from "@/components/AnimatedPage";
+import { sanitizePhoneNumber } from "@/utils";
+
+type UserPayload = {
+  full_name: string;
+  username: string;
+  password?: string;
+  phone: string;
+  email: string;
+  role: UserType["role"];
+  outlet_id: string | null;
+  is_active?: boolean;
+  updated_at?: string;
+};
 
 export default function AdminUserPage() {
   const [users, setUsers] = useState<UserType[]>([]);
@@ -39,6 +53,102 @@ export default function AdminUserPage() {
     role: "kasir" as "admin" | "kasir" | "owner",
     outlet_id: "" as string,
   });
+
+  const primaryOutlet =
+    outlets.find((outlet) =>
+      outlet.name.toLowerCase().includes("utama"),
+    ) || outlets[0] || null;
+
+  const secondaryOutlet =
+    outlets.find((outlet) => {
+      const outletName = outlet.name.toLowerCase();
+      return (
+        outletName.includes("laundry 2") ||
+        outletName.includes("laundry dua") ||
+        outletName.includes("cabang 2") ||
+        outletName.includes("cabang dua") ||
+        outletName.includes("branch 2")
+      );
+    }) ||
+    outlets.find((outlet) => outlet.id !== primaryOutlet?.id) ||
+    null;
+
+  function isBardiIdentity(fullName?: string, username?: string) {
+    const identity = `${fullName || ""} ${username || ""}`.toLowerCase();
+    return identity.includes("bardi");
+  }
+
+  function getCashierDefaultOutlet(fullName?: string, username?: string) {
+    if (isBardiIdentity(fullName, username)) {
+      return primaryOutlet;
+    }
+
+    return secondaryOutlet || primaryOutlet;
+  }
+
+  function getDefaultOutletId(
+    role: UserType["role"],
+    fullName?: string,
+    username?: string,
+  ) {
+    if (role === "kasir") {
+      return getCashierDefaultOutlet(fullName, username)?.id || "";
+    }
+
+    return "";
+  }
+
+  function getOutletName(outletId?: string | null) {
+    if (!outletId) {
+      return null;
+    }
+
+    return outlets.find((outlet) => outlet.id === outletId)?.name || null;
+  }
+
+  function getCashierDefaultOutletLabel(fullName?: string, username?: string) {
+    return (
+      getCashierDefaultOutlet(fullName, username)?.name ||
+      (isBardiIdentity(fullName, username)
+        ? "Bardi Laundry Utama"
+        : "Laundry 2")
+    );
+  }
+
+  function getResolvedOutletLabel(user: UserType) {
+    if (user.role !== "kasir") {
+      return "";
+    }
+
+    const assignedOutlet = getOutletName(user.outlet_id);
+
+    if (isBardiIdentity(user.full_name, user.username)) {
+      return primaryOutlet?.name || "Bardi Laundry Utama";
+    }
+
+    if (assignedOutlet && assignedOutlet !== primaryOutlet?.name) {
+      return assignedOutlet;
+    }
+
+    return getCashierDefaultOutletLabel(user.full_name, user.username);
+  }
+
+  function getErrorMessage(error: unknown) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "message" in error &&
+      typeof error.message === "string"
+    ) {
+      return error.message;
+    }
+
+    return "Terjadi kesalahan yang tidak diketahui.";
+  }
 
   useEffect(() => {
     fetchData();
@@ -63,8 +173,8 @@ export default function AdminUserPage() {
         .eq("is_active", true)
         .order("name", { ascending: true });
       setOutlets(outletData || []);
-    } catch (error: any) {
-      console.error("Gagal ambil data:", error.message);
+    } catch (error: unknown) {
+      console.error("Gagal ambil data:", getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -78,7 +188,7 @@ export default function AdminUserPage() {
       phone: "",
       email: "",
       role: "kasir",
-      outlet_id: "",
+      outlet_id: getDefaultOutletId("kasir"),
     });
     setIsEditMode(false);
     setEditingId(null);
@@ -94,10 +204,14 @@ export default function AdminUserPage() {
       full_name: user.full_name || "",
       username: user.username,
       password: "", // Don't show existing password
-      phone: user.phone || "",
+      phone: sanitizePhoneNumber(user.phone),
       email: user.email || "",
       role: user.role,
-      outlet_id: (user as any).outlet_id || "",
+      outlet_id:
+        user.role === "kasir"
+          ? user.outlet_id ||
+            getDefaultOutletId(user.role, user.full_name, user.username)
+          : "",
     });
     setEditingId(user.id);
     setIsEditMode(true);
@@ -107,20 +221,27 @@ export default function AdminUserPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    const sanitizedPhone = sanitizePhoneNumber(formData.phone);
+    const resolvedOutletId =
+      formData.role === "kasir"
+        ? formData.outlet_id ||
+          getDefaultOutletId(
+            formData.role,
+            formData.full_name,
+            formData.username,
+          )
+        : "";
 
     try {
       if (isEditMode && editingId) {
         // Update existing user
-        const updateData: any = {
+        const updateData: UserPayload = {
           full_name: formData.full_name,
           username: formData.username,
-          phone: formData.phone,
+          phone: sanitizedPhone,
           email: formData.email,
           role: formData.role,
-          outlet_id:
-            formData.role === "kasir" && formData.outlet_id
-              ? formData.outlet_id
-              : null,
+          outlet_id: resolvedOutletId || null,
           updated_at: new Date().toISOString(),
         };
 
@@ -143,13 +264,10 @@ export default function AdminUserPage() {
             full_name: formData.full_name,
             username: formData.username,
             password: formData.password,
-            phone: formData.phone,
+            phone: sanitizedPhone,
             email: formData.email,
             role: formData.role,
-            outlet_id:
-              formData.role === "kasir" && formData.outlet_id
-                ? formData.outlet_id
-                : null,
+            outlet_id: resolvedOutletId || null,
             is_active: true,
           },
         ]);
@@ -161,8 +279,8 @@ export default function AdminUserPage() {
       setIsModalOpen(false);
       resetForm();
       fetchData();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      alert("Error: " + getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -177,8 +295,8 @@ export default function AdminUserPage() {
       alert("Pengguna berhasil dihapus!");
       setDeleteConfirm(null);
       fetchData();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      alert("Error: " + getErrorMessage(error));
     }
   }
 
@@ -189,18 +307,18 @@ export default function AdminUserPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
+    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
       {/* Header Card */}
       <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4 self-start">
-          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center animate-scaleIn">
             <User className="text-white" size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">
+            <h1 className="text-2xl font-bold text-slate-800 animate-slideInRight" style={{ animationDelay: '100ms' }}>
               Kelola Pengguna
             </h1>
-            <p className="text-slate-500 text-sm">
+            <p className="text-slate-500 text-sm animate-slideInRight" style={{ animationDelay: '200ms' }}>
               Daftar semua pengguna sistem (Admin, Kasir, Owner)
             </p>
           </div>
@@ -208,14 +326,14 @@ export default function AdminUserPage() {
 
         <button
           onClick={openAddModal}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold transition-all shadow-lg shadow-blue-100 w-full md:w-auto justify-center"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold transition-all shadow-lg shadow-blue-100 w-full md:w-auto justify-center animate-scaleIn" style={{ animationDelay: '300ms' }}
         >
           <Plus size={20} /> Tambah Pengguna
         </button>
       </div>
 
       {/* Table */}
-      <div className="max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+      <AnimatedItem animation="fadeInUp" style={{ animationDelay: '400ms' }} className="max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Header with Search */}
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-white">
           <div className="flex items-center gap-3 self-start">
@@ -234,8 +352,8 @@ export default function AdminUserPage() {
             />
             <input
               type="text"
-              placeholder="Cari nama atau username..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              placeholder="Cari nama..."
+              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -247,17 +365,18 @@ export default function AdminUserPage() {
             <thead className="bg-slate-50/50 text-slate-400 text-[10px] uppercase font-black tracking-widest border-b border-slate-100">
               <tr>
                 <th className="px-8 py-5">Nama Lengkap</th>
-                <th className="px-8 py-5">Username</th>
+                <th className="px-8 py-5">Pengguna</th>
                 <th className="px-8 py-5">No. Telepon</th>
                 <th className="px-8 py-5">Email</th>
-                <th className="px-8 py-5 text-center">Role</th>
+                <th className="px-8 py-5 text-center">Peran</th>
+                <th className="px-8 py-5 text-center">Outlet</th>
                 <th className="px-8 py-5 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-24 text-center">
+                  <td colSpan={7} className="py-24 text-center">
                     <Loader2
                       className="animate-spin mx-auto text-blue-500"
                       size={40}
@@ -265,10 +384,14 @@ export default function AdminUserPage() {
                   </td>
                 </tr>
               ) : filteredUsers.length > 0 ? (
-                filteredUsers.map((u) => (
-                  <tr
+                filteredUsers.map((u, index) => (
+                  <AnimatedItem
+                    as="tr"
                     key={u.id}
-                    className="hover:bg-blue-50/40 transition-colors"
+                    animation="slideInLeft"
+                    index={index}
+                    staggerDelay={50}
+                    className="hover:bg-blue-50/40 transition-colors group"
                   >
                     <td className="px-8 py-5 font-bold text-slate-800">
                       {u.full_name}
@@ -279,59 +402,69 @@ export default function AdminUserPage() {
                     <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {u.phone || "-"}
                     </td>
-                    <td className="px-8 py-5 text-slate-500 text-sm">
+                    <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {u.email || "-"}
                     </td>
                     <td className="px-8 py-5 text-center">
                       <span
                         className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${
                           u.role === "admin"
-                            ? "bg-rose-100 text-rose-600"
+                            ? "bg-rose-100 text-rose-600 border border-rose-200"
                             : u.role === "kasir"
-                              ? "bg-blue-100 text-blue-600"
-                              : "bg-amber-100 text-amber-600"
+                              ? "bg-blue-100 text-blue-600 border border-blue-200"
+                              : "bg-amber-100 text-amber-600 border border-amber-200"
                         }`}
                       >
                         {u.role}
                       </span>
                     </td>
+                    <td className="px-8 py-5 text-center">
+                      {getResolvedOutletLabel(u) ? (
+                        <span className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                          {getResolvedOutletLabel(u)}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-8 py-5">
                       <div className="flex justify-center gap-3">
                         <button
                           onClick={() => openEditModal(u)}
-                          className="p-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                          className="p-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
                         >
                           <Edit3 size={18} />
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(u.id)}
-                          className="p-2.5 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all"
+                          className="p-2.5 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"
                         >
                           <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
-                  </tr>
+                  </AnimatedItem>
                 ))
               ) : (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="py-20 text-center text-slate-400 text-sm italic"
+                   <td
+                    colSpan={7}
+                    className="py-20 text-center text-slate-400 text-sm font-medium"
                   >
-                    Data tidak ditemukan.
+                    <div className="flex flex-col items-center justify-center gap-3">
+                       <Search className="w-10 h-10 text-slate-300 mb-2" />
+                       Data tidak ditemukan.
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </AnimatedItem>
 
       {/* Modal Add/Edit */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-300 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 shrink-0">
               <h2 className="text-xl font-black text-slate-800 tracking-tight">
                 {isEditMode ? "Edit Pengguna" : "Tambah Pengguna"}
@@ -350,7 +483,7 @@ export default function AdminUserPage() {
 
             <form
               onSubmit={handleSave}
-              className="p-6 space-y-4 overflow-y-auto flex-1"
+              className="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar"
             >
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
@@ -362,29 +495,75 @@ export default function AdminUserPage() {
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.full_name}
                   onChange={(e) =>
-                    setFormData({ ...formData, full_name: e.target.value })
+                    setFormData((prev) => {
+                      const nextFullName = e.target.value;
+                      const shouldSyncOutlet =
+                        prev.role === "kasir" &&
+                        (!prev.outlet_id ||
+                          prev.outlet_id ===
+                            getDefaultOutletId(
+                              prev.role,
+                              prev.full_name,
+                              prev.username,
+                            ));
+
+                      return {
+                        ...prev,
+                        full_name: nextFullName,
+                        outlet_id: shouldSyncOutlet
+                          ? getDefaultOutletId(
+                              prev.role,
+                              nextFullName,
+                              prev.username,
+                            )
+                          : prev.outlet_id,
+                      };
+                    })
                   }
                 />
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Username *
+                  Pengguna *
                 </label>
                 <input
                   required
-                  placeholder="Username login"
+                  placeholder="Pengguna login"
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.username}
                   onChange={(e) =>
-                    setFormData({ ...formData, username: e.target.value })
+                    setFormData((prev) => {
+                      const nextUsername = e.target.value;
+                      const shouldSyncOutlet =
+                        prev.role === "kasir" &&
+                        (!prev.outlet_id ||
+                          prev.outlet_id ===
+                            getDefaultOutletId(
+                              prev.role,
+                              prev.full_name,
+                              prev.username,
+                            ));
+
+                      return {
+                        ...prev,
+                        username: nextUsername,
+                        outlet_id: shouldSyncOutlet
+                          ? getDefaultOutletId(
+                              prev.role,
+                              prev.full_name,
+                              nextUsername,
+                            )
+                          : prev.outlet_id,
+                      };
+                    })
                   }
                 />
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Password{" "}
+                  Kata Sandi{" "}
                   {isEditMode ? "(kosongkan jika tidak ingin mengubah)" : "*"}
                 </label>
                 <div className="relative">
@@ -414,29 +593,50 @@ export default function AdminUserPage() {
                     No. Telepon
                   </label>
                   <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="tel"
                     placeholder="08xxxxxxxxxx"
                     className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                     value={formData.phone}
                     onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value })
+                      setFormData({
+                        ...formData,
+                        phone: sanitizePhoneNumber(e.target.value),
+                      })
                     }
                   />
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                    Role *
+                    Peran *
                   </label>
                   <select
                     className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm appearance-none font-bold text-slate-700"
                     value={formData.role}
-                    onChange={(e) =>
-                      setFormData({ ...formData, role: e.target.value as any })
-                    }
+                    onChange={(e) => {
+                      const nextRole = e.target.value as UserType["role"];
+                      setFormData((prev) => ({
+                        ...prev,
+                        role: nextRole,
+                        outlet_id:
+                          nextRole === "kasir"
+                            ? prev.outlet_id ||
+                              getDefaultOutletId(
+                                nextRole,
+                                prev.full_name,
+                                prev.username,
+                              )
+                            : "",
+                      }));
+                    }}
                   >
                     <option value="admin">Administrator</option>
                     <option value="kasir">Kasir</option>
-                    <option value="owner">Owner</option>
+                    <option value="owner">Pemilik
+                    </option>
                   </select>
                 </div>
               </div>
@@ -458,32 +658,38 @@ export default function AdminUserPage() {
 
               {/* Outlet Selection - Only for Kasir */}
               {formData.role === "kasir" && (
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1 flex items-center gap-2">
-                    <Store size={12} /> Outlet Penugasan
+                <AnimatedItem animation="fadeInUp" className="space-y-2 bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
+                  <div className="rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm font-bold text-slate-700">
+                    {getCashierDefaultOutletLabel(
+                      formData.full_name,
+                      formData.username,
+                    )}
+                  </div>
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 ml-1 flex items-center gap-2">
+                    <Store size={12} /> Toko
                   </label>
                   <select
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm appearance-none font-bold text-slate-700"
+                    className="w-full px-5 py-3.5 bg-white border border-blue-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm appearance-none font-bold text-slate-700"
                     value={formData.outlet_id}
                     onChange={(e) =>
                       setFormData({ ...formData, outlet_id: e.target.value })
                     }
                   >
-                    <option value="">-- Pilih Outlet --</option>
+                    <option value="">-- Pilih Toko --</option>
                     {outlets.map((outlet) => (
                       <option key={outlet.id} value={outlet.id}>
                         {outlet.name}
                       </option>
                     ))}
                   </select>
-                  <p className="text-[10px] text-slate-400 ml-1">
-                    Kasir hanya dapat mengakses laporan dari outlet yang
-                    ditugaskan
+                  <p className="text-[10px] text-blue-500 ml-1 font-medium">
+                    Kasir Bardi tetap di Laundry Utama. Kasir lain default ke
+                    Laundry 2, tetapi masih bisa Anda ubah bila diperlukan.
                   </p>
-                </div>
+                </AnimatedItem>
               )}
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-4 pt-4 sticky bottom-0 bg-white pb-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -504,7 +710,7 @@ export default function AdminUserPage() {
                   ) : (
                     <Save size={16} />
                   )}
-                  {isEditMode ? "Update" : "Simpan"}
+                  {isEditMode ? "Perbarui" : "Simpan"}
                 </button>
               </div>
             </form>
@@ -514,27 +720,27 @@ export default function AdminUserPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center">
-            <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
               <Trash2 className="text-rose-600" size={32} />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">
               Hapus Pengguna?
             </h3>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-slate-500 text-sm mb-6 font-medium">
               Pengguna akan dinonaktifkan dan tidak bisa login lagi.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50"
+                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Batal
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700"
+                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 transition-colors"
               >
                 Ya, Hapus
               </button>
@@ -542,6 +748,6 @@ export default function AdminUserPage() {
           </div>
         </div>
       )}
-    </div>
+    </AnimatedPage>
   );
 }

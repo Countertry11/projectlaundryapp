@@ -2,8 +2,8 @@
 
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Bell } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import Navbar from "@/components/navbar";
 import { useAuth } from "@/context/AuthContext";
 
 export default function AdminLayout({
@@ -37,6 +37,8 @@ export default function AdminLayout({
 
       {/* Main Content Area */}
       <div className="ml-64 flex-1 flex flex-col">
+        {/* Navbar */}
+        <Navbar />
 
         {/* Dynamic Content */}
         <main className="p-8">{children}</main>

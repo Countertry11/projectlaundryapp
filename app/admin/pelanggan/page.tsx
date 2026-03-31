@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Customer } from "@/types";
+import { AnimatedPage, AnimatedItem } from "@/components/AnimatedPage";
+import { sanitizePhoneNumber } from "@/utils";
 
 export default function PelangganPage() {
   const [pelanggan, setPelanggan] = useState<Customer[]>([]);
@@ -65,7 +67,7 @@ export default function PelangganPage() {
   function openEditModal(customer: Customer) {
     setFormData({
       name: customer.name || "",
-      phone: customer.phone || "",
+      phone: sanitizePhoneNumber(customer.phone),
       email: customer.email || "",
       address: customer.address || "",
     });
@@ -77,6 +79,7 @@ export default function PelangganPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    const sanitizedPhone = sanitizePhoneNumber(formData.phone);
 
     try {
       if (isEditMode && editingId) {
@@ -84,6 +87,7 @@ export default function PelangganPage() {
           .from("customers")
           .update({
             ...formData,
+            phone: sanitizedPhone,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editingId);
@@ -94,6 +98,7 @@ export default function PelangganPage() {
         const { error } = await supabase.from("customers").insert([
           {
             ...formData,
+            phone: sanitizedPhone,
             is_member: true,
             total_transactions: 0,
             total_spent: 0,
@@ -135,31 +140,31 @@ export default function PelangganPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
+    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
       {/* Header Card */}
       <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4 self-start">
-          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center animate-scaleIn">
             <Users className="text-white" size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">
+            <h1 className="text-2xl font-bold text-slate-800 animate-slideInRight" style={{ animationDelay: '100ms' }}>
               Data Pelanggan
             </h1>
-            <p className="text-slate-500 text-sm">Manajemen member laundry</p>
+            <p className="text-slate-500 text-sm animate-slideInRight" style={{ animationDelay: '200ms' }}>Manajemen pelanggan laundry</p>
           </div>
         </div>
 
         <button
           onClick={openAddModal}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold transition-all shadow-lg shadow-blue-100 w-full md:w-auto justify-center"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 text-sm font-bold transition-all shadow-lg shadow-blue-100 w-full md:w-auto justify-center animate-scaleIn" style={{ animationDelay: '300ms' }}
         >
           <UserPlus size={20} /> Tambah Pelanggan
         </button>
       </div>
 
       {/* Table */}
-      <div className="max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+      <AnimatedItem animation="fadeInUp" style={{ animationDelay: '400ms' }} className="max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Header with Search */}
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 bg-white">
           <h3 className="font-bold text-slate-800 text-lg self-start">
@@ -174,7 +179,7 @@ export default function PelangganPage() {
             <input
               type="text"
               placeholder="Cari nama atau telepon..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -203,63 +208,70 @@ export default function PelangganPage() {
                   </td>
                 </tr>
               ) : filteredPelanggan.length > 0 ? (
-                filteredPelanggan.map((item) => (
-                  <tr
+                filteredPelanggan.map((item, index) => (
+                  <AnimatedItem
+                    as="tr"
                     key={item.id}
+                    animation="slideInLeft"
+                    index={index}
+                    staggerDelay={50}
                     className="hover:bg-blue-50/40 transition-colors"
                   >
                     <td className="px-8 py-5 font-bold text-slate-800">
                       {item.name}
                     </td>
-                    <td className="px-8 py-5 text-slate-500 text-sm">
+                    <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {item.phone}
                     </td>
-                    <td className="px-8 py-5 text-slate-500 text-sm">
+                    <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {item.email || "-"}
                     </td>
-                    <td className="px-8 py-5 text-slate-500 text-sm">
+                    <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {item.address || "-"}
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex justify-center gap-3">
                         <button
                           onClick={() => openEditModal(item)}
-                          className="p-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                          className="p-2.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
                         >
                           <Edit2 size={18} />
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(item.id)}
-                          className="p-2.5 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all"
+                          className="p-2.5 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"
                         >
                           <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
-                  </tr>
+                  </AnimatedItem>
                 ))
               ) : (
                 <tr>
                   <td
                     colSpan={5}
-                    className="py-20 text-center text-slate-400 text-sm italic"
+                    className="py-20 text-center text-slate-400 text-sm font-medium"
                   >
-                    Data tidak ditemukan.
+                    <div className="flex flex-col items-center justify-center gap-3">
+                       <Search className="w-10 h-10 text-slate-300 mb-2" />
+                       Data tidak ditemukan.
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </AnimatedItem>
 
       {/* Modal Add/Edit */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-300">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="flex justify-between items-center p-8 border-b border-slate-100">
               <h2 className="text-2xl font-black text-slate-800 tracking-tight">
-                {isEditMode ? "Edit Pelanggan" : "Registrasi Pelanggan"}
+                {isEditMode ? "Edit Pelanggan" : "Pendaftaran Pelanggan"}
               </h2>
               <button
                 onClick={() => {
@@ -294,11 +306,18 @@ export default function PelangganPage() {
                 </label>
                 <input
                   required
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="tel"
                   placeholder="08xxxxxxxxxx"
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.phone}
                   onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
+                    setFormData({
+                      ...formData,
+                      phone: sanitizePhoneNumber(e.target.value),
+                    })
                   }
                 />
               </div>
@@ -354,7 +373,7 @@ export default function PelangganPage() {
                   ) : (
                     <Save size={16} />
                   )}
-                  {isEditMode ? "Update" : "Simpan"}
+                  {isEditMode ? "Perbarui" : "Simpan"}
                 </button>
               </div>
             </form>
@@ -364,27 +383,27 @@ export default function PelangganPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center">
-            <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4 scale-100 animate-pulse">
               <Trash2 className="text-rose-600" size={32} />
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">
               Hapus Pelanggan?
             </h3>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-slate-500 text-sm mb-6 font-medium">
               Data pelanggan akan dihapus secara permanen.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50"
+                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Batal
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700"
+                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 transition-colors"
               >
                 Ya, Hapus
               </button>
@@ -392,6 +411,6 @@ export default function PelangganPage() {
           </div>
         </div>
       )}
-    </div>
+    </AnimatedPage>
   );
 }

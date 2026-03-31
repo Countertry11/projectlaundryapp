@@ -1,137 +1,235 @@
 "use client";
-
 import React, { useState, useEffect } from "react";
 import {
-  ShoppingCart,
-  Save,
-  ArrowRight,
-  ChevronDown,
-  CreditCard,
-  Calendar,
+  Plus,
+  Search,
+  Receipt,
+  X,
   Loader2,
+  Save,
+  ChevronDown,
+  User,
+  Package,
+  Store,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { Customer, Paket } from "@/types";
-import { formatRupiah } from "@/utils";
+import { AnimatedPage } from "@/components/AnimatedPage";
+import { Customer, Outlet, Paket, Transaction } from "@/types";
+import {
+  formatRupiah,
+  formatDateTime,
+  toWibDatabaseDateTime,
+  toWibDateTimeLocalValue,
+} from "@/utils";
 import { useAuth } from "@/context/AuthContext";
 
-export default function TransaksiPage() {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [fetchingData, setFetchingData] = useState(true);
+const DEFAULT_ESTIMATION_DAYS = 3;
+const AUTO_TAX_PERCENT = 10;
 
-  // State Data Database
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [packages, setPackages] = useState<Paket[]>([]);
+function getDefaultDueDateInput() {
+  return toWibDateTimeLocalValue(
+    new Date(
+      Date.now() + DEFAULT_ESTIMATION_DAYS * 24 * 60 * 60 * 1000,
+    ),
+  );
+}
 
-  // State Form
-  const [formData, setFormData] = useState({
+function createInitialFormData(outletId = "") {
+  return {
+    outlet_id: outletId,
     customer_id: "",
     paket_id: "",
     qty: 1,
-    biaya_tambahan: 0,
-    diskon: 0,
-    pajak: 0,
-    keterangan: "",
-  });
+    due_date: getDefaultDueDateInput(),
+    additional_cost: 0,
+    payment_status: "unpaid" as "unpaid" | "paid",
+    status: "pending" as "pending" | "processing" | "ready" | "completed",
+    notes: "",
+  };
+}
 
-  // State UI & Perhitungan
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
-    null,
-  );
+export default function TransaksiKasir() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Data from database
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [packages, setPackages] = useState<Paket[]>([]);
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
+
+  // Form state
+  const [formData, setFormData] = useState(createInitialFormData);
+
   const [selectedPackage, setSelectedPackage] = useState<Paket | null>(null);
-  const [totalBayar, setTotalBayar] = useState(0);
-  const [estimationDate, setEstimationDate] = useState("");
+  const [userOutletId, setUserOutletId] = useState<string | null>(null);
+  const [primaryOutletId, setPrimaryOutletId] = useState("");
+  const [selectedOutletId, setSelectedOutletId] = useState("");
 
-  // 1. LOAD DATA DARI SUPABASE
   useEffect(() => {
-    const fetchData = async () => {
-      setFetchingData(true);
-      try {
-        // Load customers from correct table
-        const { data: customerData, error: custErr } = await supabase
-          .from("customers")
-          .select("*")
-          .order("name", { ascending: true });
+    fetchMasterData();
+    fetchUserOutlet();
+  }, [user]);
 
-        if (custErr) console.error("Error loading customers:", custErr);
-        else setCustomers(customerData || []);
+  useEffect(() => {
+    fetchTransactions();
+  }, [selectedOutletId]);
 
-        // Load packages from tb_paket
-        const { data: packageData, error: pkgErr } = await supabase
-          .from("tb_paket")
-          .select("*");
+  useEffect(() => {
+    if (selectedOutletId) return;
+    if (primaryOutletId) {
+      setSelectedOutletId(primaryOutletId);
+      return;
+    }
+    if (userOutletId) {
+      setSelectedOutletId(userOutletId);
+    }
+  }, [primaryOutletId, selectedOutletId, userOutletId]);
 
-        if (pkgErr) console.error("Error loading packages:", pkgErr);
-        else setPackages(packageData || []);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      } finally {
-        setFetchingData(false);
+  function getPreferredOutletId() {
+    return selectedOutletId || primaryOutletId || userOutletId || "";
+  }
+
+  function resetTransactionForm(outletId = getPreferredOutletId()) {
+    setFormData(createInitialFormData(outletId));
+    setSelectedPackage(null);
+  }
+
+  function openTransactionModal() {
+    resetTransactionForm();
+    setIsModalOpen(true);
+  }
+
+  function closeTransactionModal() {
+    setIsModalOpen(false);
+    resetTransactionForm();
+  }
+
+  async function fetchTransactions() {
+    setLoading(true);
+    try {
+      let query = supabase
+        .from("transactions")
+        .select(
+          `
+          *,
+          customer:customers(id, name, phone)
+        `,
+        )
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (selectedOutletId) {
+        query = query.eq("outlet_id", selectedOutletId);
       }
-    };
-    fetchData();
-  }, []);
 
-  // 2. LOGIKA HITUNG TOTAL
-  useEffect(() => {
-    const harga = Number(selectedPackage?.harga) || 0;
-    const qty = Number(formData.qty) || 0;
-    const subtotal = harga * qty;
-    const diskonAmount = subtotal * (Number(formData.diskon) / 100);
-    const total =
-      subtotal -
-      diskonAmount +
-      Number(formData.pajak) +
-      Number(formData.biaya_tambahan);
+      const { data: transData, error: transErr } = await query;
 
-    setTotalBayar(total);
+      if (transErr) console.error("Error loading transactions:", transErr);
+      else setTransactions(transData || []);
+    } catch (error) {
+      console.error("Error fetching transactions:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-    const today = new Date();
-    today.setDate(today.getDate() + 3);
-    setEstimationDate(
-      today.toLocaleDateString("id-ID", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }),
-    );
-  }, [formData, selectedPackage]);
+  async function fetchMasterData() {
+    try {
+      // Fetch customers
+      const { data: custData } = await supabase
+        .from("customers")
+        .select("*")
+        .order("name", { ascending: true });
+      setCustomers(custData || []);
 
-  // 3. FUNGSI SIMPAN TRANSAKSI
-  const handleSimpanTransaksi = async (e: React.FormEvent) => {
+      // Fetch packages
+      const { data: pkgData } = await supabase.from("tb_paket").select("*");
+      setPackages(pkgData || []);
+
+      // Fetch outlets
+      const { data: outletData } = await supabase
+        .from("outlets")
+        .select("id, name, address, phone, email, manager, is_active")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+      const activeOutlets = outletData || [];
+      setOutlets(activeOutlets);
+      const mainOutlet =
+        activeOutlets.find((outlet) =>
+          outlet.name.toLowerCase().includes("utama"),
+        ) || activeOutlets[0];
+      setPrimaryOutletId(mainOutlet?.id || "");
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    }
+  }
+
+  async function fetchUserOutlet() {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from("users")
+        .select("outlet_id")
+        .eq("id", user.id)
+        .single();
+      setUserOutletId(data?.outlet_id || null);
+    } catch (error) {
+      console.error("Error fetching user outlet:", error);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!formData.customer_id || !formData.paket_id) {
-      alert("Mohon pilih pelanggan dan paket terlebih dahulu!");
+    const transactionOutletId = formData.outlet_id || getPreferredOutletId();
+    const activePackage =
+      selectedPackage ||
+      packages.find((pkg) => pkg.id.toString() === formData.paket_id) ||
+      null;
+
+    if (
+      !transactionOutletId ||
+      !formData.customer_id ||
+      !formData.paket_id ||
+      !activePackage
+    ) {
+      alert("Mohon pilih outlet, pelanggan, dan paket terlebih dahulu!");
       return;
     }
 
-    setLoading(true);
+    setSaving(true);
     try {
-      // Generate invoice number
       const invoiceNumber = `INV-${Date.now()}`;
-      const dueDate = new Date(
-        Date.now() + 3 * 24 * 60 * 60 * 1000,
-      ).toISOString();
+      const dueDate = formData.due_date
+        ? toWibDatabaseDateTime(formData.due_date)
+        : toWibDatabaseDateTime(
+          new Date(Date.now() + DEFAULT_ESTIMATION_DAYS * 24 * 60 * 60 * 1000),
+        );
+      const subtotal = (activePackage.harga || 0) * Number(formData.qty || 1);
+      const additionalCost = Number(formData.additional_cost || 0);
+      const taxAmount = Math.round(subtotal * (AUTO_TAX_PERCENT / 100));
+      const grandTotal = subtotal + additionalCost + taxAmount;
 
-      // Insert to transactions table
       const { data: trans, error: errTrans } = await supabase
         .from("transactions")
         .insert([
           {
+            outlet_id: transactionOutletId,
             customer_id: formData.customer_id,
             kasir_id: user?.id,
             invoice_number: invoiceNumber,
-            transaction_date: new Date().toISOString(),
+            transaction_date: toWibDatabaseDateTime(new Date()),
             due_date: dueDate,
-            status: "pending",
-            payment_status: "unpaid",
-            total_amount: totalBayar,
-            discount: formData.diskon,
-            tax: formData.pajak,
-            grand_total: totalBayar,
-            notes: formData.keterangan,
+            status: formData.status,
+            payment_status: formData.payment_status,
+            total_amount: subtotal,
+            discount: 0,
+            tax: taxAmount,
+            grand_total: grandTotal,
+            notes: formData.notes,
           },
         ])
         .select()
@@ -139,91 +237,348 @@ export default function TransaksiPage() {
 
       if (errTrans) throw errTrans;
 
-      // Insert to transaction_details table
       const { error: errDetail } = await supabase
         .from("transaction_details")
         .insert([
           {
             transaction_id: trans.id,
-            quantity: formData.qty,
-            price: selectedPackage?.harga || 0,
-            notes: formData.keterangan,
+            quantity: Number(formData.qty || 1),
+            price: activePackage.harga || 0,
+            notes: formData.notes,
           },
         ]);
 
       if (errDetail) throw errDetail;
 
-      alert(`Transaksi Berhasil Disimpan!\nNo. Invoice: ${invoiceNumber}`);
-
-      // Reset form
-      setFormData({
-        customer_id: "",
-        paket_id: "",
-        qty: 1,
-        biaya_tambahan: 0,
-        diskon: 0,
-        pajak: 0,
-        keterangan: "",
-      });
-      setSelectedPackage(null);
-      setSelectedCustomer(null);
+      alert(`Transaksi Berhasil!\nNo. Invoice: ${invoiceNumber}`);
+      if (transactionOutletId && transactionOutletId !== selectedOutletId) {
+        setSelectedOutletId(transactionOutletId);
+      } else {
+        fetchTransactions();
+      }
+      closeTransactionModal();
     } catch (error: any) {
       alert("Gagal menyimpan: " + error.message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  };
-
-  if (fetchingData) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <Loader2 className="animate-spin text-blue-600" size={48} />
-      </div>
-    );
   }
 
+  async function updateStatus(id: string, status: string) {
+    try {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id);
+
+      if (error) throw error;
+      fetchTransactions();
+    } catch (error: any) {
+      alert("Error: " + error.message);
+    }
+  }
+
+  async function updatePaymentStatus(id: string, payment_status: string) {
+    try {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ payment_status, updated_at: new Date().toISOString() })
+        .eq("id", id);
+
+      if (error) throw error;
+      fetchTransactions();
+    } catch (error: any) {
+      alert("Error: " + error.message);
+    }
+  }
+
+  const filteredTransactions = transactions.filter(
+    (trx) =>
+      trx.invoice_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (trx.customer as any)?.name
+        ?.toLowerCase()
+        .includes(searchTerm.toLowerCase()),
+  );
+
+  const statusColors: Record<string, string> = {
+    pending: "bg-blue-50 text-blue-600 border-blue-100",
+    processing: "bg-orange-50 text-orange-600 border-orange-100",
+    ready: "bg-purple-50 text-purple-600 border-purple-100",
+    completed: "bg-green-50 text-green-600 border-green-100",
+    cancelled: "bg-red-50 text-red-600 border-red-100",
+  };
+
+  const statusLabels: Record<string, string> = {
+    pending: "Baru",
+    processing: "Proses",
+    ready: "Selesai",
+    completed: "Diambil",
+    cancelled: "Batal",
+  };
+
+  // Status order for sequential flow
+  const statusOrder = ["pending", "processing", "ready", "completed"];
+
+  function getAvailableStatuses(currentStatus: string) {
+    const currentIndex = statusOrder.indexOf(currentStatus);
+    if (currentIndex === -1) return statusOrder;
+    // Return current status and all statuses after it
+    return statusOrder.slice(currentIndex);
+  }
+
+  const dueDatePreview = formData.due_date || getDefaultDueDateInput();
+  const subtotalPreview = selectedPackage
+    ? (selectedPackage.harga || 0) * Number(formData.qty || 1)
+    : 0;
+  const taxAmountPreview = Math.round(
+    subtotalPreview * (AUTO_TAX_PERCENT / 100),
+  );
+  const additionalCostPreview = Number(formData.additional_cost || 0);
+  const grandTotalPreview =
+    subtotalPreview + taxAmountPreview + additionalCostPreview;
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-4 md:p-8">
-      {/* Header */}
-      <div className="max-w-7xl mx-auto flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-8">
-        <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">
-            Entri Transaksi
-          </h1>
-          <p className="text-slate-500 text-sm font-medium">
-            Lengkapi rincian laundry di bawah ini.
-          </p>
+    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-6 space-y-6 font-sans text-slate-800">
+      {/* HEADER */}
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fadeInUp">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-600 rounded-2xl text-white shadow-lg shadow-blue-200">
+            <Receipt size={28} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-gray-800 tracking-tight">
+              Entri Transaksi
+            </h1>
+            <p className="text-gray-400 text-sm font-medium">
+              Input dan kelola pesanan laundry pelanggan.
+            </p>
+          </div>
         </div>
-        <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg">
-          <ShoppingCart size={24} />
+        <button
+          onClick={openTransactionModal}
+          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-2xl font-bold text-sm transition-all shadow-md active:scale-95"
+        >
+          <Plus size={20} />
+          Buat Transaksi Baru
+        </button>
+      </div>
+
+      {/* FILTER & SEARCH */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_18rem] gap-4 items-end">
+        <div className="space-y-2">
+          <label className="ml-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+            <Search size={12} /> Cari Transaksi
+          </label>
+          <div className="relative">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-gray-400">
+              <Search size={18} />
+            </div>
+            <input
+              type="text"
+              placeholder="Cari invoice atau nama pelanggan..."
+              className="h-14 w-full bg-white border border-gray-200 text-gray-700 pl-11 pr-4 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/40 transition-all text-sm font-medium shadow-sm"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="ml-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-black-600">
+            <Store size={12} /> Toko
+          </label>
+          <div className="relative">
+            <select
+              className="h-14 w-full appearance-none bg-white border border-blue-200 text-slate-700 px-4 pr-11 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/40 transition-all text-sm font-semibold shadow-sm"
+              value={selectedOutletId}
+              onChange={(e) => setSelectedOutletId(e.target.value)}
+            >
+              <option value="">Pilih Toko</option>
+              {outlets.map((outlet) => (
+                <option key={outlet.id} value={outlet.id}>
+                  {outlet.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+              size={16}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* KOLOM KIRI: FORM INPUT */}
-        <form
-          onSubmit={handleSimpanTransaksi}
-          className="lg:col-span-2 space-y-6"
-        >
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Pilih Customer */}
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-wider ml-1">
+      {/* TABLE */}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50/50 border-b border-gray-100">
+                <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-gray-400">
+                  Invoice
+                </th>
+                <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-gray-400">
                   Pelanggan
+                </th>
+                <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-gray-400">
+                  Tanggal
+                </th>
+                <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-gray-400 text-center">
+                  Status
+                </th>
+                <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-gray-400 text-center">
+                  Pembayaran
+                </th>
+                <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-gray-400">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-20 text-center">
+                    <Loader2
+                      className="animate-spin mx-auto text-blue-500"
+                      size={40}
+                    />
+                  </td>
+                </tr>
+              ) : filteredTransactions.length > 0 ? (
+                filteredTransactions.map((trx, index) => (
+                  <tr
+                    key={trx.id}
+                    className="hover:bg-blue-50/30 transition-colors animate-fadeInUp"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <td className="px-8 py-6 font-bold text-blue-600 text-sm">
+                      {trx.invoice_number}
+                    </td>
+                    <td className="px-8 py-6 font-bold text-gray-800 text-sm">
+                      {(trx.customer as any)?.name || "-"}
+                    </td>
+                    <td className="px-8 py-6 text-sm text-gray-500">
+                      <div>{formatDateTime(trx.transaction_date)}</div>
+                      <div className="mt-1 text-xs font-medium text-amber-600">
+                        Batas waktu: {formatDateTime(trx.due_date)}
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex justify-center">
+                        <span
+                          className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border inline-block text-center ${statusColors[trx.status] || statusColors.pending}`}
+                        >
+                          {statusLabels[trx.status]}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex justify-center">
+                        <span
+                          className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border inline-block text-center ${trx.payment_status === "paid"
+                              ? "bg-green-50 text-green-600 border-green-100"
+                              : "bg-red-50 text-red-600 border-red-100"
+                            }`}
+                        >
+                          {trx.payment_status === "paid" ? "Lunas" : "Belum Bayar"}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6 font-black text-gray-800 text-sm">
+                      {formatRupiah(trx.grand_total)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="py-20 text-center text-gray-400 italic"
+                  >
+                    {searchTerm
+                      ? "Tidak ada transaksi yang cocok."
+                      : "Belum ada transaksi."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* MODAL INPUT */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={closeTransactionModal}
+          ></div>
+          <div className="relative bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-gray-50 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                  <Plus size={20} />
+                </div>
+                <h2 className="text-xl font-black text-gray-800">
+                  Transaksi Baru
+                </h2>
+              </div>
+              <button
+                onClick={closeTransactionModal}
+                className="p-2 hover:bg-gray-100 rounded-full text-gray-400"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSubmit}
+              className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto flex-1"
+            >
+              <div className="space-y-1.5 col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                  <Store size={12} /> Toko *
                 </label>
                 <div className="relative">
                   <select
-                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 text-slate-900 outline-none appearance-none"
-                    value={formData.customer_id}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({ ...formData, customer_id: val });
-                      setSelectedCustomer(
-                        customers.find((c) => c.id === val) || null,
-                      );
-                    }}
                     required
+                    className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all appearance-none"
+                    value={formData.outlet_id}
+                    onChange={(e) =>
+                      setFormData({ ...formData, outlet_id: e.target.value })
+                    }
+                  >
+                    <option value="">Pilih Toko</option>
+                    {outlets.map((outlet) => (
+                      <option key={outlet.id} value={outlet.id}>
+                        {outlet.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    size={16}
+                  />
+                </div>
+                <p className="ml-1 text-[11px] font-medium text-slate-500">
+                  Toko transaksi dipilih satu per transaksi dan bisa dipindah ke
+                  outlet lain dari form ini.
+                </p>
+              </div>
+
+              {/* Pelanggan */}
+              <div className="space-y-1.5 col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                  <User size={12} /> Nama Pelanggan *
+                </label>
+                <div className="relative">
+                  <select
+                    required
+                    className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all appearance-none"
+                    value={formData.customer_id}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customer_id: e.target.value })
+                    }
                   >
                     <option value="">Pilih Pelanggan</option>
                     {customers.map((c) => (
@@ -233,30 +588,31 @@ export default function TransaksiPage() {
                     ))}
                   </select>
                   <ChevronDown
-                    className="absolute right-4 top-4 text-slate-400"
-                    size={20}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    size={16}
                   />
                 </div>
               </div>
 
-              {/* Pilih Paket */}
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-wider ml-1">
-                  Paket Laundry
+              {/* Paket */}
+              <div className="space-y-1.5 col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                  <Package size={12} /> Pilihan Cuci Paket *
                 </label>
                 <div className="relative">
                   <select
-                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 text-slate-900 outline-none appearance-none"
+                    required
+                    className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all appearance-none"
                     value={formData.paket_id}
                     onChange={(e) => {
                       const val = e.target.value;
-                      const pkg = packages.find((p) => p.id.toString() === val);
                       setFormData({ ...formData, paket_id: val });
-                      setSelectedPackage(pkg || null);
+                      setSelectedPackage(
+                        packages.find((p) => p.id.toString() === val) || null,
+                      );
                     }}
-                    required
                   >
-                    <option value="">Pilih Jenis Layanan</option>
+                    <option value="">Pilih Paket</option>
                     {packages.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.nama_paket} ({formatRupiah(p.harga)})
@@ -264,231 +620,135 @@ export default function TransaksiPage() {
                     ))}
                   </select>
                   <ChevronDown
-                    className="absolute right-4 top-4 text-slate-400"
-                    size={20}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    size={16}
                   />
                 </div>
               </div>
-            </div>
 
-            {/* Detail Biaya */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* Jumlah (Qty) */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500">
-                  Jumlah
+              <div className="space-y-1.5 col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  Batas Waktu Cuci *
                 </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="1"
-                    className="w-full p-3 pr-12 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                    value={formData.qty}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        qty: Math.max(1, Number(e.target.value)),
-                      })
-                    }
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                    pcs
-                  </span>
+                <input
+                  type="datetime-local"
+                  required
+                  className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all"
+                  value={formData.due_date}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      due_date: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  Pajak Otomatis
+                </label>
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-5 py-3.5">
+                  <div className="text-sm font-bold text-amber-700">
+                    {formatRupiah(taxAmountPreview)}
+                  </div>
+                  <p className="mt-1 text-[11px] text-amber-600">
+                    Otomatis {AUTO_TAX_PERCENT}% dari harga paket x jumlah.
+                  </p>
                 </div>
               </div>
 
-              {/* Diskon */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500">
-                  Diskon
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  Biaya Tambahan
                 </label>
                 <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    className="w-full p-3 pr-8 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 outline-none"
-                    value={formData.diskon}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        diskon: Number(e.target.value),
-                      })
-                    }
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                    %
-                  </span>
-                </div>
-              </div>
-
-              {/* Pajak */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500">
-                  Pajak
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                  <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">
                     Rp
                   </span>
                   <input
-                    type="number"
-                    className="w-full p-3 pl-10 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 outline-none"
-                    value={formData.pajak}
-                    onChange={(e) =>
+                    type="text"
+                    inputMode="numeric"
+                    className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl pl-12 pr-5 py-3.5 text-sm font-semibold outline-none transition-all"
+                    placeholder="0"
+                    value={
+                      formData.additional_cost === 0 ? "" : formData.additional_cost
+                    }
+                    onChange={(e) => {
+                      const numericValue = e.target.value.replace(/\D/g, "");
                       setFormData({
                         ...formData,
-                        pajak: Number(e.target.value),
-                      })
-                    }
+                        additional_cost:
+                          numericValue === "" ? 0 : Number(numericValue),
+                      });
+                    }}
                   />
                 </div>
               </div>
 
-              {/* Biaya Tambahan */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500">
-                  Tambahan
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                    Rp
-                  </span>
-                  <input
-                    type="number"
-                    className="w-full p-3 pl-10 bg-slate-50 rounded-xl border border-slate-200 text-slate-900 outline-none"
-                    value={formData.biaya_tambahan}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        biaya_tambahan: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Keterangan */}
-            <div className="space-y-2">
-              <label className="text-xs font-black text-slate-400 uppercase ml-1">
-                Keterangan Tambahan
-              </label>
-              <textarea
-                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl h-24 text-slate-900 outline-none focus:border-blue-500 resize-none"
-                placeholder="Contoh: Baju putih jangan dicampur..."
-                value={formData.keterangan}
-                onChange={(e) =>
-                  setFormData({ ...formData, keterangan: e.target.value })
-                }
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-200 transition-all flex items-center justify-center gap-3 disabled:bg-slate-300"
-          >
-            {loading ? (
-              <Loader2 className="animate-spin" size={24} />
-            ) : (
-              <>
-                <Save size={20} /> SIMPAN TRANSAKSI BARU{" "}
-                <ArrowRight size={20} />
-              </>
-            )}
-          </button>
-        </form>
-
-        {/* KOLOM KANAN: RINGKASAN */}
-        <div className="space-y-6">
-          <div className="bg-slate-900 text-white p-8 rounded-3xl shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <CreditCard size={100} />
-            </div>
-            <h3 className="text-lg font-bold mb-8 flex items-center gap-3">
-              <CreditCard className="text-blue-400" size={20} /> Ringkasan
-              Pembayaran
-            </h3>
-            <div className="space-y-4 border-b border-slate-700 pb-6 mb-6">
-              <div className="flex justify-between text-slate-400 text-sm">
-                <span>Harga Paket</span>
-                <span className="text-white font-bold">
-                  {formatRupiah(selectedPackage?.harga || 0)}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-400 text-sm">
-                <span>Subtotal ({formData.qty} pcs)</span>
-                <span className="text-white font-bold">
-                  {formatRupiah((selectedPackage?.harga || 0) * formData.qty)}
-                </span>
-              </div>
-              {formData.diskon > 0 && (
-                <div className="flex justify-between text-red-400 text-sm">
-                  <span>Diskon {formData.diskon}%</span>
-                  <span>
-                    -{" "}
-                    {formatRupiah(
-                      (selectedPackage?.harga || 0) *
-                        formData.qty *
-                        (formData.diskon / 100),
-                    )}
-                  </span>
+              {/* Total Display */}
+              {selectedPackage && (
+                <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between rounded-2xl border border-blue-100 bg-white/70 px-4 py-3 text-sm">
+                    <span className="font-semibold text-slate-600">
+                      Batas Waktu
+                    </span>
+                    <span className="font-bold text-blue-700">
+                      {formatDateTime(dueDatePreview)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Paket Dipilih:</span>
+                    <span className="font-semibold">{selectedPackage.nama_paket}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Harga Paket:</span>
+                    <span className="font-semibold">{formatRupiah(subtotalPreview)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-amber-600">
+                    <span>Pajak ({AUTO_TAX_PERCENT}%):</span>
+                    <span className="font-semibold">+ {formatRupiah(taxAmountPreview)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-purple-600">
+                    <span>Biaya Tambahan:</span>
+                    <span className="font-semibold">
+                      + {formatRupiah(additionalCostPreview)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 pt-2 border-t border-blue-100">
+                    <span className="font-bold">Grand Total:</span>
+                    <span className="font-black text-lg">
+                      {formatRupiah(grandTotalPreview)}
+                    </span>
+                  </div>
                 </div>
               )}
-              <div className="flex justify-between text-emerald-400 text-sm">
-                <span>Pajak & Tambahan</span>
-                <span>
-                  + {formatRupiah(formData.pajak + formData.biaya_tambahan)}
-                </span>
-              </div>
-            </div>
-            <div className="flex justify-between items-end">
-              <div>
-                <span className="text-xs font-bold text-slate-500 uppercase">
-                  Total Bayar
-                </span>
-              </div>
-              <span className="text-3xl font-black text-blue-400">
-                {formatRupiah(totalBayar)}
-              </span>
-            </div>
-          </div>
 
-          {/* Selected Customer Info */}
-          {selectedCustomer && (
-            <div className="bg-white p-6 rounded-3xl border border-slate-200">
-              <h4 className="text-xs font-black text-slate-400 uppercase mb-3">
-                Info Pelanggan
-              </h4>
-              <p className="font-bold text-slate-800">
-                {selectedCustomer.name}
-              </p>
-              <p className="text-sm text-slate-500">{selectedCustomer.phone}</p>
-              {selectedCustomer.address && (
-                <p className="text-sm text-slate-400 mt-1">
-                  {selectedCustomer.address}
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 flex items-center gap-4">
-            <div className="bg-blue-600 p-3 rounded-2xl text-white">
-              <Calendar size={24} />
-            </div>
-            <div>
-              <p className="text-blue-900 font-bold text-xs uppercase tracking-tighter">
-                Estimasi Selesai
-              </p>
-              <p className="text-blue-700 font-black text-sm">
-                {estimationDate}
-              </p>
-            </div>
+              <div className="col-span-2 flex gap-4 pt-4">
+                <button
+                  type="button"
+                  onClick={closeTransactionModal}
+                  className="flex-1 py-4 rounded-2xl font-bold text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition-all"
+                >
+                  Batalkan
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 py-4 rounded-2xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {saving ? (
+                    <Loader2 className="animate-spin" size={18} />
+                  ) : (
+                    <Save size={18} />
+                  )}
+                  Proses Transaksi
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatedPage>
   );
 }

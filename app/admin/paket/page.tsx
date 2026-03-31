@@ -13,6 +13,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { Paket } from "@/types";
 import { formatRupiah } from "@/utils";
+import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
 
 export default function PaketPage() {
   const [pakets, setPakets] = useState<Paket[]>([]);
@@ -140,22 +141,22 @@ export default function PaketPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
+    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
       {/* Header */}
-      <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+      <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 animate-fadeInUp">
         <div className="flex items-center gap-4 self-start">
-          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100 flex items-center justify-center animate-scaleIn" style={{ animationDelay: '100ms' }}>
             <Package className="text-white" size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Katalog Paket</h1>
-            <p className="text-slate-500 text-sm">
+            <h1 className="text-2xl font-bold text-slate-800 animate-slideInRight" style={{ animationDelay: '200ms' }}>Katalog Paket</h1>
+            <p className="text-slate-500 text-sm animate-slideInRight" style={{ animationDelay: '300ms' }}>
               Kelola harga layanan laundry
             </p>
           </div>
         </div>
 
-        <div className="flex gap-4 w-full md:w-auto">
+        <div className="flex gap-4 w-full md:w-auto animate-fadeInUp" style={{ animationDelay: '400ms' }}>
           <div className="relative flex-1 md:w-64">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -164,7 +165,7 @@ export default function PaketPage() {
             <input
               type="text"
               placeholder="Cari paket..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -184,7 +185,11 @@ export default function PaketPage() {
           <Loader2 className="animate-spin text-blue-500" size={40} />
         </div>
       ) : (
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <StaggeredList 
+          className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+          animation="scaleIn"
+          staggerDelay={100}
+        >
           {filteredPakets.length > 0 ? (
             filteredPakets.map((item) => (
               <div
@@ -198,13 +203,13 @@ export default function PaketPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => openEditModal(item)}
-                      className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                      className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
                     >
                       <Edit3 size={18} />
                     </button>
                     <button
                       onClick={() => setDeleteConfirm(item.id)}
-                      className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                      className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -223,7 +228,7 @@ export default function PaketPage() {
               </div>
             ))
           ) : (
-            <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
+            <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200 animate-fadeInUp">
               <p className="text-slate-400 font-medium">
                 {searchTerm
                   ? "Tidak ada paket yang cocok dengan pencarian."
@@ -231,7 +236,7 @@ export default function PaketPage() {
               </p>
             </div>
           )}
-        </div>
+        </StaggeredList>
       )}
 
       {/* Modal Add/Edit */}
@@ -275,7 +280,7 @@ export default function PaketPage() {
                     Jenis *
                   </label>
                   <select
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm font-medium"
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm font-medium transition-colors"
                     value={formData.jenis}
                     onChange={(e) =>
                       setFormData({ ...formData, jenis: e.target.value })
@@ -291,6 +296,9 @@ export default function PaketPage() {
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
                     Harga (Rp) *
+                     <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-500">
+                    Rp
+                  </span>
                   </label>
                   <input
                     required
@@ -326,7 +334,7 @@ export default function PaketPage() {
                   ) : (
                     <Save size={16} />
                   )}
-                  {isEditMode ? "Update" : "Simpan"}
+                  {isEditMode ? "perbarui" : "Simpan"}
                 </button>
               </div>
             </form>
@@ -337,7 +345,7 @@ export default function PaketPage() {
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center animate-in fade-in zoom-in duration-300">
             <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 className="text-rose-600" size={32} />
             </div>
@@ -350,13 +358,13 @@ export default function PaketPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50"
+                className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Batal
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700"
+                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all"
               >
                 Ya, Hapus
               </button>
@@ -364,6 +372,6 @@ export default function PaketPage() {
           </div>
         </div>
       )}
-    </div>
+    </AnimatedPage>
   );
 }

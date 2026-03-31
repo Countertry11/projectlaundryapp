@@ -14,6 +14,7 @@ import { FaFilePdf } from "react-icons/fa";
 import { supabase } from "@/lib/supabase";
 import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
+import { AnimatedPage, AnimatedItem } from "@/components/AnimatedPage";
 
 interface OutletReport {
   id: string;
@@ -103,7 +104,7 @@ export default function LaporanOwnerPage() {
     setExporting(true);
     try {
       exportToPDF({
-        title: "Laporan Manajerial - Rekapitulasi Per Cabang",
+        title: "Laporan Manajemen Toko - Rekapitulasi Per Cabang",
         subtitle: `Total Pendapatan Konsolidasi: ${formatRupiah(totalGlobal)}`,
         filename: `laporan-owner-${new Date().toISOString().split("T")[0]}`,
         columns: [
@@ -132,23 +133,23 @@ export default function LaporanOwnerPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 space-y-6 text-slate-800 font-sans">
+    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-4 md:p-8 space-y-6 text-slate-800 font-sans">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-5 rounded-2xl shadow-sm border border-gray-100 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-5 rounded-2xl shadow-sm border border-gray-100 gap-4 animate-scaleIn">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-blue-600 rounded-xl text-white shadow-md shadow-blue-100">
+          <div className="p-2.5 bg-blue-600 rounded-xl text-white shadow-md shadow-blue-100 animate-scaleIn" style={{ animationDelay: '100ms' }}>
             <BarChart3 size={20} />
           </div>
           <div>
-            <h1 className="text-lg font-black text-gray-800 tracking-tight">
-              Laporan Manajerial
+            <h1 className="text-lg font-black text-gray-800 tracking-tight animate-slideInRight" style={{ animationDelay: '200ms' }}>
+              Laporan Toko
             </h1>
-            <p className="text-gray-400 text-[11px] font-medium">
+            <p className="text-gray-400 text-[11px] font-medium animate-slideInRight" style={{ animationDelay: '300ms' }}>
               Analisis pendapatan seluruh cabang laundry.
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 animate-fadeInUp" style={{ animationDelay: '400ms' }}>
           <button
             onClick={() => window.print()}
             className="flex items-center gap-2 bg-gray-50 border border-gray-200 text-gray-600 px-4 py-2 rounded-xl font-bold text-xs hover:bg-gray-100 transition-all"
@@ -171,7 +172,7 @@ export default function LaporanOwnerPage() {
       </div>
 
       {/* Main Table */}
-      <div className="bg-white rounded-[24px] shadow-sm border border-gray-100 overflow-hidden">
+      <AnimatedItem animation="fadeInUp" style={{ animationDelay: '500ms' }} className="bg-white rounded-[24px] shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-5 border-b border-gray-50 flex items-center justify-between bg-gray-50/30">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">
             Rekapitulasi Per Cabang
@@ -183,8 +184,8 @@ export default function LaporanOwnerPage() {
             />
             <input
               type="text"
-              placeholder="Cari outlet..."
-              className="bg-white border border-gray-200 rounded-lg pl-8 pr-4 py-1.5 text-[10px] font-bold outline-none focus:border-blue-500/50 w-48"
+              placeholder="Cari Toko..."
+              className="bg-white border border-gray-200 rounded-lg pl-8 pr-4 py-1.5 text-[10px] font-bold outline-none focus:border-blue-500/50 w-48 transition-colors"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -201,7 +202,7 @@ export default function LaporanOwnerPage() {
               <thead>
                 <tr className="border-b border-gray-50">
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    Nama Outlet
+                    Nama Toko
                   </th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">
                     Total Transaksi
@@ -213,14 +214,18 @@ export default function LaporanOwnerPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filteredOutlets.length > 0 ? (
-                  filteredOutlets.map((report) => (
-                    <tr
+                  filteredOutlets.map((report, index) => (
+                    <AnimatedItem
+                      as="tr"
                       key={report.id}
-                      className="hover:bg-blue-50/30 transition-colors"
+                      animation="slideInLeft"
+                      index={index}
+                      staggerDelay={50}
+                      className="hover:bg-blue-50/30 transition-colors group"
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-bold text-xs">
+                          <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-bold text-xs group-hover:scale-110 transition-transform">
                             {report.name.charAt(0)}
                           </div>
                           <span className="text-xs font-bold text-gray-800">
@@ -238,13 +243,13 @@ export default function LaporanOwnerPage() {
                           {formatRupiah(report.totalPendapatan)}
                         </span>
                       </td>
-                    </tr>
+                    </AnimatedItem>
                   ))
                 ) : (
                   <tr>
                     <td
                       colSpan={3}
-                      className="px-6 py-12 text-center text-gray-400 italic"
+                      className="px-6 py-12 text-center text-gray-400 italic font-medium"
                     >
                       Belum ada data transaksi
                     </td>
@@ -269,7 +274,7 @@ export default function LaporanOwnerPage() {
             </table>
           </div>
         )}
-      </div>
-    </div>
+      </AnimatedItem>
+    </AnimatedPage>
   );
 }

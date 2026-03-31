@@ -6,6 +6,8 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { formatRupiah } from "@/utils";
 import Link from "next/link";
+import { AnimatedPage, AnimatedItem, StaggeredList, CountUp } from "@/components/AnimatedPage";
+
 
 interface Transaction {
   id: string;
@@ -91,12 +93,12 @@ export default function KasirDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8 space-y-8 text-slate-800 font-sans">
+    <AnimatedPage className="min-h-screen bg-gray-50 p-4 md:p-8 space-y-8 text-slate-800 font-sans">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
-            Dashboard Kasir
+            Beranda Kasir
           </h1>
           <p className="text-gray-500 text-sm">
             Selamat datang,{" "}
@@ -108,36 +110,40 @@ export default function KasirDashboardPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <StaggeredList 
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6"
+        animation="scaleIn"
+        staggerDelay={100}
+      >
         <StatCard
           title="Pesanan Baru"
-          value={stats.pending.toString()}
+          value={stats.pending}
           icon={Layers}
           color="bg-blue-600"
         />
         <StatCard
           title="Siap Ambil"
-          value={stats.ready.toString()}
+          value={stats.ready}
           icon={Check}
           color="bg-emerald-500"
         />
         <StatCard
           title="Proses Cuci"
-          value={stats.processing.toString()}
+          value={stats.processing}
           icon={Clock}
           color="bg-orange-500"
         />
         <StatCard
           title="Pendapatan"
-          value={formatRupiah(stats.totalRevenue)}
+          value={stats.totalRevenue}
           icon={Wallet}
           color="bg-purple-500"
           isCurrency={true}
         />
-      </div>
+      </StaggeredList>
 
       {/* Tabel Aktivitas */}
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+      <AnimatedItem animation="fadeInUp" className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden" style={{ animationDelay: '400ms' }}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white">
           <h2 className="text-lg font-bold text-gray-800">Aktivitas Terkini</h2>
           <Link
@@ -166,9 +172,13 @@ export default function KasirDashboardPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {transactions.length > 0 ? (
-                  transactions.map((trx) => (
-                    <tr
+                  transactions.map((trx, index) => (
+                    <AnimatedItem
+                      as="tr"
                       key={trx.id}
+                      animation="slideInLeft"
+                      index={index}
+                      staggerDelay={50}
                       className="hover:bg-blue-50/30 transition-colors"
                     >
                       <td className="px-6 py-5 font-bold text-blue-600">
@@ -201,7 +211,7 @@ export default function KasirDashboardPage() {
                       <td className="px-6 py-5 font-black text-gray-900 text-right whitespace-nowrap">
                         {formatRupiah(trx.grand_total)}
                       </td>
-                    </tr>
+                    </AnimatedItem>
                   ))
                 ) : (
                   <tr>
@@ -217,8 +227,8 @@ export default function KasirDashboardPage() {
             </table>
           </div>
         )}
-      </div>
-    </div>
+      </AnimatedItem>
+    </AnimatedPage>
   );
 }
 
@@ -227,10 +237,10 @@ function StatCard({
   value,
   icon: Icon,
   color,
-  isCurrency,
+  isCurrency = false,
 }: {
   title: string;
-  value: string;
+  value: number;
   icon: React.ElementType;
   color: string;
   isCurrency?: boolean;
@@ -249,7 +259,14 @@ function StatCard({
         <h3
           className={`font-black text-gray-800 leading-tight ${isCurrency ? "text-lg xl:text-xl" : "text-2xl"}`}
         >
-          {value}
+          {isCurrency ? (
+            <div className="flex items-center gap-1">
+               <span className="text-sm">Rp</span>
+               <CountUp end={value} />
+            </div>
+           ) : (
+            <CountUp end={value} />
+          )}
         </h3>
       </div>
     </div>

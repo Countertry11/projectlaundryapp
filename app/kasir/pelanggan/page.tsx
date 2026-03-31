@@ -14,6 +14,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { AnimatedPage } from "@/components/AnimatedPage";
+import { sanitizePhoneNumber } from "@/utils";
 
 interface Customer {
   id: string;
@@ -21,7 +23,6 @@ interface Customer {
   address: string;
   gender: string;
   phone: string;
-  is_member: boolean;
 }
 
 export default function PelangganPage() {
@@ -38,7 +39,6 @@ export default function PelangganPage() {
     address: "",
     gender: "L",
     phone: "",
-    is_member: true,
   });
 
   useEffect(() => {
@@ -79,8 +79,8 @@ export default function PelangganPage() {
             name: formData.name,
             address: formData.address,
             gender: formData.gender,
-            phone: formData.phone,
-            is_member: formData.is_member,
+            phone: sanitizePhoneNumber(formData.phone),
+            is_member: false,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editingId);
@@ -94,8 +94,8 @@ export default function PelangganPage() {
             name: formData.name,
             address: formData.address,
             gender: formData.gender,
-            phone: formData.phone,
-            is_member: formData.is_member,
+            phone: sanitizePhoneNumber(formData.phone),
+            is_member: false,
             total_transactions: 0,
             total_spent: 0,
           },
@@ -133,8 +133,7 @@ export default function PelangganPage() {
       name: customer.name,
       address: customer.address || "",
       gender: customer.gender || "L",
-      phone: customer.phone || "",
-      is_member: customer.is_member ?? true,
+      phone: sanitizePhoneNumber(customer.phone),
     });
     setIsModalOpen(true);
   }
@@ -145,7 +144,6 @@ export default function PelangganPage() {
       address: "",
       gender: "L",
       phone: "",
-      is_member: true,
     });
     setEditingId(null);
   }
@@ -157,9 +155,9 @@ export default function PelangganPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6] p-6 space-y-6 font-sans text-slate-800">
+    <AnimatedPage className="min-h-screen bg-[#f3f4f6] p-6 space-y-6 font-sans text-slate-800">
       {/* HEADER */}
-      <div className="bg-white p-6 rounded-[24px] shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white p-6 rounded-[24px] shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fadeInUp">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-blue-600 rounded-2xl text-white shadow-lg shadow-blue-100">
             <Users size={24} />
@@ -169,7 +167,7 @@ export default function PelangganPage() {
               Data Pelanggan
             </h1>
             <p className="text-gray-400 text-sm font-medium">
-              Manajemen registrasi member laundry
+              Manajemen data pelanggan laundry
             </p>
           </div>
         </div>
@@ -212,7 +210,7 @@ export default function PelangganPage() {
                   Pelanggan
                 </th>
                 <th className="px-6 py-4 text-[11px] font-black uppercase tracking-widest text-gray-400 text-center">
-                  Gender
+                  Jenis Kelamin
                 </th>
                 <th className="px-6 py-4 text-[11px] font-black uppercase tracking-widest text-gray-400">
                   Kontak
@@ -233,10 +231,11 @@ export default function PelangganPage() {
                   </td>
                 </tr>
               ) : filteredCustomers.length > 0 ? (
-                filteredCustomers.map((customer) => (
+                filteredCustomers.map((customer, index) => (
                   <tr
                     key={customer.id}
-                    className="hover:bg-blue-50/30 transition-colors group"
+                    className="hover:bg-blue-50/30 transition-colors group animate-fadeInUp"
+                    style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <td className="px-6 py-5">
                       <div className="flex flex-col">
@@ -244,11 +243,6 @@ export default function PelangganPage() {
                           <span className="font-bold text-gray-800 text-sm tracking-tight">
                             {customer.name}
                           </span>
-                          {customer.is_member && (
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase rounded-full">
-                              Member
-                            </span>
-                          )}
                         </div>
                         <span className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
                           <MapPin size={10} /> {customer.address || "-"}
@@ -283,13 +277,13 @@ export default function PelangganPage() {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => openEditModal(customer)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-all"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(customer.id)}
-                          className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                          className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-all"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -394,34 +388,20 @@ export default function PelangganPage() {
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="tel"
                   placeholder="08..."
                   required
                   value={formData.phone}
                   onChange={(e) =>
-                    setFormData({ ...formData, phone: e.target.value })
+                    setFormData({
+                      ...formData,
+                      phone: sanitizePhoneNumber(e.target.value),
+                    })
                   }
                   className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-xl px-4 py-3 text-sm font-semibold outline-none transition-all"
                 />
-              </div>
-
-              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
-                <input
-                  type="checkbox"
-                  id="is_member"
-                  checked={formData.is_member}
-                  onChange={(e) =>
-                    setFormData({ ...formData, is_member: e.target.checked })
-                  }
-                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
-                <label htmlFor="is_member" className="cursor-pointer">
-                  <span className="text-sm font-bold text-gray-700">
-                    Daftar sebagai Member
-                  </span>
-                  <p className="text-[11px] text-gray-400">
-                    Member mendapatkan diskon dan promo khusus
-                  </p>
-                </label>
               </div>
 
               <div className="flex gap-3 pt-2">
@@ -441,7 +421,7 @@ export default function PelangganPage() {
                   className="flex-1 py-3 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {saving && <Loader2 className="animate-spin" size={16} />}
-                  {editingId ? "Update" : "Simpan"}
+                  {editingId ? "Perbarui" : "Simpan"}
                 </button>
               </div>
             </form>
@@ -480,6 +460,6 @@ export default function PelangganPage() {
           </div>
         </div>
       )}
-    </div>
+    </AnimatedPage>
   );
 }
