@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   Plus,
@@ -18,6 +18,14 @@ import {
 } from "lucide-react";
 import { User as UserType, Outlet } from "@/types";
 import { AnimatedPage, AnimatedItem } from "@/components/AnimatedPage";
+import { useAuth } from "@/context/AuthContext";
+import { resolveAdminUserDeleteGuard } from "@/lib/adminUserDeleteGuard.mjs";
+import {
+  getAllowedAdminUserRoles,
+  isAdminUserRoleLocked,
+  resolveAdminUserSubmitRole,
+} from "@/lib/adminUserRoleGuard.mjs";
+import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
 import { sanitizePhoneNumber } from "@/utils";
 
 type UserPayload = {
@@ -32,7 +40,25 @@ type UserPayload = {
   updated_at?: string;
 };
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "Terjadi kesalahan yang tidak diketahui.";
+}
+
 export default function AdminUserPage() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserType[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +69,8 @@ export default function AdminUserPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [roleError, setRoleError] = useState("");
+  const [originalRole, setOriginalRole] = useState<UserType["role"] | null>(null);
 
   const [formData, setFormData] = useState({
     full_name: "",
@@ -73,6 +101,21 @@ export default function AdminUserPage() {
     outlets.find((outlet) => outlet.id !== primaryOutlet?.id) ||
     null;
 
+  const roleOptionLabels: Record<UserType["role"], string> = {
+    admin: "Administrator",
+    kasir: "Kasir",
+    owner: "Pemilik",
+  };
+
+  const allowedRoles = getAllowedAdminUserRoles({
+    isEditMode,
+    originalRole,
+  }) as UserType["role"][];
+  const roleLocked = isAdminUserRoleLocked({
+    isEditMode,
+    originalRole,
+  });
+
   function isBardiIdentity(fullName?: string, username?: string) {
     const identity = `${fullName || ""} ${username || ""}`.toLowerCase();
     return identity.includes("bardi");
@@ -98,14 +141,6 @@ export default function AdminUserPage() {
     return "";
   }
 
-  function getOutletName(outletId?: string | null) {
-    if (!outletId) {
-      return null;
-    }
-
-    return outlets.find((outlet) => outlet.id === outletId)?.name || null;
-  }
-
   function getCashierDefaultOutletLabel(fullName?: string, username?: string) {
     return (
       getCashierDefaultOutlet(fullName, username)?.name ||
@@ -120,41 +155,36 @@ export default function AdminUserPage() {
       return "";
     }
 
-    const assignedOutlet = getOutletName(user.outlet_id);
-
-    if (isBardiIdentity(user.full_name, user.username)) {
-      return primaryOutlet?.name || "Bardi Laundry Utama";
-    }
-
-    if (assignedOutlet && assignedOutlet !== primaryOutlet?.name) {
-      return assignedOutlet;
-    }
-
-    return getCashierDefaultOutletLabel(user.full_name, user.username);
+    return resolveKasirOutletAccess(outlets, user.outlet_id).displayLabel;
   }
 
-  function getErrorMessage(error: unknown) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "message" in error &&
-      typeof error.message === "string"
-    ) {
-      return error.message;
-    }
-
-    return "Terjadi kesalahan yang tidak diketahui.";
+  function getUserById(userId: string) {
+    return users.find((user) => user.id === userId) || null;
   }
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  function getDeleteGuard(targetUser: UserType | null | undefined) {
+    return resolveAdminUserDeleteGuard({
+      currentUser,
+      targetUser,
+    });
+  }
 
-  async function fetchData() {
+  function canDeleteUser(targetUser: UserType) {
+    return getDeleteGuard(targetUser).canDelete;
+  }
+
+  function openDeleteModal(targetUser: UserType) {
+    const deleteGuard = getDeleteGuard(targetUser);
+
+    if (!deleteGuard.canDelete) {
+      alert(deleteGuard.message);
+      return;
+    }
+
+    setDeleteConfirm(targetUser.id);
+  }
+
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -178,7 +208,11 @@ export default function AdminUserPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   function resetForm() {
     setFormData({
@@ -192,6 +226,8 @@ export default function AdminUserPage() {
     });
     setIsEditMode(false);
     setEditingId(null);
+    setOriginalRole(null);
+    setRoleError("");
   }
 
   function openAddModal() {
@@ -200,6 +236,7 @@ export default function AdminUserPage() {
   }
 
   function openEditModal(user: UserType) {
+    setRoleError("");
     setFormData({
       full_name: user.full_name || "",
       username: user.username,
@@ -213,6 +250,7 @@ export default function AdminUserPage() {
             getDefaultOutletId(user.role, user.full_name, user.username)
           : "",
     });
+    setOriginalRole(user.role);
     setEditingId(user.id);
     setIsEditMode(true);
     setIsModalOpen(true);
@@ -221,12 +259,27 @@ export default function AdminUserPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    const roleGuard = resolveAdminUserSubmitRole({
+      isEditMode,
+      originalRole,
+      requestedRole: formData.role,
+    });
+    const resolvedRole = roleGuard.role as UserType["role"];
     const sanitizedPhone = sanitizePhoneNumber(formData.phone);
+
+    if (!roleGuard.isValid) {
+      setRoleError(roleGuard.message || "");
+      setSaving(false);
+      alert("Error: " + roleGuard.message);
+      return;
+    }
+
+    setRoleError("");
     const resolvedOutletId =
-      formData.role === "kasir"
+      resolvedRole === "kasir"
         ? formData.outlet_id ||
           getDefaultOutletId(
-            formData.role,
+            resolvedRole,
             formData.full_name,
             formData.username,
           )
@@ -240,7 +293,7 @@ export default function AdminUserPage() {
           username: formData.username,
           phone: sanitizedPhone,
           email: formData.email,
-          role: formData.role,
+          role: resolvedRole,
           outlet_id: resolvedOutletId || null,
           updated_at: new Date().toISOString(),
         };
@@ -266,7 +319,7 @@ export default function AdminUserPage() {
             password: formData.password,
             phone: sanitizedPhone,
             email: formData.email,
-            role: formData.role,
+            role: resolvedRole,
             outlet_id: resolvedOutletId || null,
             is_active: true,
           },
@@ -288,6 +341,15 @@ export default function AdminUserPage() {
 
   async function handleDelete(id: string) {
     try {
+      const targetUser = getUserById(id);
+      const deleteGuard = getDeleteGuard(targetUser);
+
+      if (!deleteGuard.canDelete) {
+        setDeleteConfirm(null);
+        alert("Error: " + deleteGuard.message);
+        return;
+      }
+
       const { error } = await supabase.from("users").delete().eq("id", id);
 
       if (error) throw error;
@@ -433,12 +495,14 @@ export default function AdminUserPage() {
                         >
                           <Edit3 size={18} />
                         </button>
-                        <button
-                          onClick={() => setDeleteConfirm(u.id)}
-                          className="p-2.5 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        {canDeleteUser(u) ? (
+                          <button
+                            onClick={() => openDeleteModal(u)}
+                            className="p-2.5 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </AnimatedItem>
@@ -614,10 +678,21 @@ export default function AdminUserPage() {
                     Peran *
                   </label>
                   <select
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm appearance-none font-bold text-slate-700"
+                    className={`w-full px-5 py-3.5 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 text-sm appearance-none font-bold transition-all ${
+                      roleLocked
+                        ? "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-500"
+                        : "border border-slate-200 bg-slate-50 text-slate-700 focus:border-blue-500"
+                    }`}
                     value={formData.role}
+                    disabled={roleLocked}
                     onChange={(e) => {
+                      setRoleError("");
                       const nextRole = e.target.value as UserType["role"];
+
+                      if (!allowedRoles.includes(nextRole)) {
+                        return;
+                      }
+
                       setFormData((prev) => ({
                         ...prev,
                         role: nextRole,
@@ -633,11 +708,15 @@ export default function AdminUserPage() {
                       }));
                     }}
                   >
-                    <option value="admin">Administrator</option>
-                    <option value="kasir">Kasir</option>
-                    <option value="owner">Pemilik
-                    </option>
+                    {allowedRoles.map((role) => (
+                      <option key={role} value={role}>
+                        {roleOptionLabels[role]}
+                      </option>
+                    ))}
                   </select>
+                  {roleError ? (
+                    <p className="text-xs font-medium text-rose-500">{roleError}</p>
+                  ) : null}
                 </div>
               </div>
 

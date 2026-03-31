@@ -1,24 +1,19 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Wallet,
-  Layers,
   Loader2,
   TrendingUp,
   Users,
   ShoppingBag,
-  Calendar,
-  ArrowRight,
-  RefreshCw,
   Search,
   X
 } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { formatRupiah } from "@/utils";
-import Link from "next/link";
-import { AnimatedPage, AnimatedItem, StaggeredList, CountUp } from "@/components/AnimatedPage";
+import { AnimatedPage, AnimatedItem, StaggeredList } from "@/components/AnimatedPage";
+import DashboardStatCard from "@/components/dashboard/DashboardStatCard";
 
 interface Transaction {
   id: string;
@@ -30,10 +25,12 @@ interface Transaction {
   created_at?: string;
 }
 
+type TransactionRow = Omit<Transaction, "customer"> & {
+  customer: { name: string } | Array<{ name: string }> | null;
+};
+
 export default function AdminDashboardPage() {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [stats, setStats] = useState({
     totalOrders: 0,        // Total semua pesanan/transaksi
@@ -41,14 +38,7 @@ export default function AdminDashboardPage() {
     totalCustomers: 0,      // Total pelanggan
     totalRevenue: 0,        // Total pendapatan
   });
-  const [currentTime, setCurrentTime] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Update waktu setiap detik
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     fetchDashboardData();
@@ -69,7 +59,7 @@ export default function AdminDashboardPage() {
         .order("created_at", { ascending: false })
         .limit(8);
 
-      const transData = transDataRaw?.map((item: any) => ({
+      const transData = (transDataRaw as TransactionRow[] | null)?.map((item) => ({
         ...item,
         customer: Array.isArray(item.customer) ? item.customer[0] || null : item.customer,
       }));
@@ -105,12 +95,6 @@ export default function AdminDashboardPage() {
       setLoading(false);
     }
   }
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchDashboardData();
-    setRefreshing(false);
-  };
 
   // Filter transactions berdasarkan search query
   const filteredTransactions = transactions.filter(trx =>
@@ -150,35 +134,35 @@ export default function AdminDashboardPage() {
 
       {/* 4 StatCards Utama: Pesanan, Total Transaksi, Pelanggan, Total Pendapatan */}
       <StaggeredList className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto" animation="scaleIn">
-        <StatCard
+        <DashboardStatCard
           title="Total Pesanan"
           value={stats.totalOrders}
           icon={ShoppingBag}
-          color="bg-gradient-to-br from-blue-600 to-blue-700"
+          tone="blue"
           trend="Semua pesanan"
           subtitle="Total seluruh pesanan"
         />
-        <StatCard
+        <DashboardStatCard
           title="Total Transaksi"
           value={stats.totalTransactions}
           icon={TrendingUp}
-          color="bg-gradient-to-br from-indigo-500 to-indigo-600"
+          tone="indigo"
           trend="Semua transaksi"
           subtitle="Total seluruh transaksi"
         />
-        <StatCard
+        <DashboardStatCard
           title="Total Pelanggan"
           value={stats.totalCustomers}
           icon={Users}
-          color="bg-gradient-to-br from-pink-500 to-pink-600"
+          tone="pink"
           trend="Terdaftar"
           subtitle="Jumlah pelanggan"
         />
-        <StatCard
+        <DashboardStatCard
           title="Total Pendapatan"
           value={stats.totalRevenue}
           icon={Wallet}
-          color="bg-gradient-to-br from-purple-500 to-purple-600"
+          tone="purple"
           isCurrency={true}
           trend="Pendapatan"
           subtitle="Dari transaksi lunas"
@@ -316,66 +300,5 @@ export default function AdminDashboardPage() {
         )}
       </AnimatedItem>
     </AnimatedPage>
-  );
-}
-
-// StatCard Component
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  color,
-  isCurrency,
-  trend,
-  subtitle,
-}: {
-  title: string;
-  value: number;
-  icon: React.ElementType;
-  color: string;
-  isCurrency?: boolean;
-  trend?: string;
-  subtitle?: string;
-}) {
-  return (
-    <div className="group relative">
-      {/* Background Glow Effect */}
-      <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
-      {/* Card */}
-      <div className="relative bg-white/80 backdrop-blur-sm p-5 rounded-2xl shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col h-full">
-        <div className="flex items-center justify-between mb-3">
-          <div
-            className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shadow-lg shadow-blue-600/20 group-hover:scale-110 transition-transform duration-300`}
-          >
-            <Icon className="w-6 h-6 text-white animate-pulse-soft" />
-          </div>
-          {trend && (
-            <span className="text-[10px] font-bold px-2 py-1 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
-              {trend}
-            </span>
-          )}
-        </div>
-
-        <div className="space-y-1 flex-1">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {title}
-          </p>
-          <h3
-            className={`font-bold text-gray-800 leading-tight ${isCurrency ? "text-base xl:text-lg" : "text-xl xl:text-2xl"
-              }`}
-          >
-            {isCurrency ? (
-              <CountUp end={value} formatter={(v) => formatRupiah(v)} />
-            ) : (
-              <CountUp end={value} />
-            )}
-          </h3>
-          {subtitle && (
-            <p className="text-[10px] text-gray-400 mt-1">{subtitle}</p>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }

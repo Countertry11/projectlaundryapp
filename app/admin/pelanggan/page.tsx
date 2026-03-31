@@ -14,6 +14,12 @@ import { supabase } from "@/lib/supabase";
 import { Customer } from "@/types";
 import { AnimatedPage, AnimatedItem } from "@/components/AnimatedPage";
 import { sanitizePhoneNumber } from "@/utils";
+import { normalizeDisplayValue } from "@/lib/adminDuplicateValidation.mjs";
+import { getCustomerDuplicateMessage } from "@/lib/customerDuplicateValidation.mjs";
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Terjadi kesalahan.";
+}
 
 export default function PelangganPage() {
   const [pelanggan, setPelanggan] = useState<Customer[]>([]);
@@ -24,6 +30,7 @@ export default function PelangganPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [formError, setFormError] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -46,8 +53,8 @@ export default function PelangganPage() {
 
       if (error) throw error;
       setPelanggan(data || []);
-    } catch (error: any) {
-      console.error("Gagal mengambil data:", error.message);
+    } catch (error: unknown) {
+      console.error("Gagal mengambil data:", getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -57,6 +64,7 @@ export default function PelangganPage() {
     setFormData({ name: "", phone: "", email: "", address: "" });
     setIsEditMode(false);
     setEditingId(null);
+    setFormError("");
   }
 
   function openAddModal() {
@@ -65,6 +73,7 @@ export default function PelangganPage() {
   }
 
   function openEditModal(customer: Customer) {
+    setFormError("");
     setFormData({
       name: customer.name || "",
       phone: sanitizePhoneNumber(customer.phone),
@@ -79,14 +88,40 @@ export default function PelangganPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setFormError("");
+    const normalizedName = normalizeDisplayValue(formData.name);
     const sanitizedPhone = sanitizePhoneNumber(formData.phone);
 
     try {
+      const { data: existingCustomers, error: customerQueryError } = await supabase
+        .from("customers")
+        .select("id, name, phone");
+
+      if (customerQueryError) throw customerQueryError;
+
+      const duplicateMessage = getCustomerDuplicateMessage(
+        existingCustomers || [],
+        {
+          name: normalizedName,
+          phone: sanitizedPhone,
+        },
+        {
+          excludeId: editingId,
+        },
+      );
+
+      if (duplicateMessage) {
+        setFormError(duplicateMessage);
+        alert(duplicateMessage);
+        return;
+      }
+
       if (isEditMode && editingId) {
         const { error } = await supabase
           .from("customers")
           .update({
             ...formData,
+            name: normalizedName,
             phone: sanitizedPhone,
             updated_at: new Date().toISOString(),
           })
@@ -98,6 +133,7 @@ export default function PelangganPage() {
         const { error } = await supabase.from("customers").insert([
           {
             ...formData,
+            name: normalizedName,
             phone: sanitizedPhone,
             is_member: true,
             total_transactions: 0,
@@ -112,8 +148,8 @@ export default function PelangganPage() {
       setIsModalOpen(false);
       resetForm();
       fetchPelanggan();
-    } catch (error: any) {
-      alert("Gagal menyimpan: " + error.message);
+    } catch (error: unknown) {
+      alert("Gagal menyimpan: " + getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -128,8 +164,8 @@ export default function PelangganPage() {
       alert("Pelanggan berhasil dihapus!");
       setDeleteConfirm(null);
       fetchPelanggan();
-    } catch (error: any) {
-      alert("Gagal menghapus: " + error.message);
+    } catch (error: unknown) {
+      alert("Gagal menghapus: " + getErrorMessage(error));
     }
   }
 
@@ -285,6 +321,12 @@ export default function PelangganPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-5">
+              {formError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700">
+                  {formError}
+                </div>
+              ) : null}
+
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
                   Nama Lengkap *
@@ -295,7 +337,10 @@ export default function PelangganPage() {
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.name}
                   onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
+                    {
+                      setFormError("");
+                      setFormData({ ...formData, name: e.target.value });
+                    }
                   }
                 />
               </div>
@@ -314,10 +359,13 @@ export default function PelangganPage() {
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.phone}
                   onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      phone: sanitizePhoneNumber(e.target.value),
-                    })
+                    {
+                      setFormError("");
+                      setFormData({
+                        ...formData,
+                        phone: sanitizePhoneNumber(e.target.value),
+                      });
+                    }
                   }
                 />
               </div>

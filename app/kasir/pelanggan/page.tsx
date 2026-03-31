@@ -16,6 +16,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import { AnimatedPage } from "@/components/AnimatedPage";
 import { sanitizePhoneNumber } from "@/utils";
+import { normalizeDisplayValue } from "@/lib/adminDuplicateValidation.mjs";
+import { getCustomerDuplicateMessage } from "@/lib/customerDuplicateValidation.mjs";
 
 interface Customer {
   id: string;
@@ -23,6 +25,10 @@ interface Customer {
   address: string;
   gender: string;
   phone: string;
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Terjadi kesalahan.";
 }
 
 export default function PelangganPage() {
@@ -33,6 +39,7 @@ export default function PelangganPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [formError, setFormError] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -70,16 +77,42 @@ export default function PelangganPage() {
     }
 
     setSaving(true);
+    setFormError("");
+    const normalizedName = normalizeDisplayValue(formData.name);
+    const sanitizedPhone = sanitizePhoneNumber(formData.phone);
     try {
+      const { data: existingCustomers, error: customerQueryError } = await supabase
+        .from("customers")
+        .select("id, name, phone");
+
+      if (customerQueryError) throw customerQueryError;
+
+      const duplicateMessage = getCustomerDuplicateMessage(
+        existingCustomers || [],
+        {
+          name: normalizedName,
+          phone: sanitizedPhone,
+        },
+        {
+          excludeId: editingId,
+        },
+      );
+
+      if (duplicateMessage) {
+        setFormError(duplicateMessage);
+        alert(duplicateMessage);
+        return;
+      }
+
       if (editingId) {
         // Update existing
         const { error } = await supabase
           .from("customers")
           .update({
-            name: formData.name,
+            name: normalizedName,
             address: formData.address,
             gender: formData.gender,
-            phone: sanitizePhoneNumber(formData.phone),
+            phone: sanitizedPhone,
             is_member: false,
             updated_at: new Date().toISOString(),
           })
@@ -91,10 +124,10 @@ export default function PelangganPage() {
         // Create new
         const { error } = await supabase.from("customers").insert([
           {
-            name: formData.name,
+            name: normalizedName,
             address: formData.address,
             gender: formData.gender,
-            phone: sanitizePhoneNumber(formData.phone),
+            phone: sanitizedPhone,
             is_member: false,
             total_transactions: 0,
             total_spent: 0,
@@ -108,8 +141,8 @@ export default function PelangganPage() {
       setIsModalOpen(false);
       resetForm();
       fetchCustomers();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      alert("Error: " + getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -122,13 +155,14 @@ export default function PelangganPage() {
       alert("Pelanggan berhasil dihapus!");
       setDeleteConfirm(null);
       fetchCustomers();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      alert("Error: " + getErrorMessage(error));
     }
   }
 
   function openEditModal(customer: Customer) {
     setEditingId(customer.id);
+    setFormError("");
     setFormData({
       name: customer.name,
       address: customer.address || "",
@@ -146,6 +180,7 @@ export default function PelangganPage() {
       phone: "",
     });
     setEditingId(null);
+    setFormError("");
   }
 
   const filteredCustomers = customers.filter(
@@ -335,6 +370,12 @@ export default function PelangganPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-5">
+              {formError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  {formError}
+                </div>
+              ) : null}
+
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
                   Nama Lengkap *
@@ -345,7 +386,10 @@ export default function PelangganPage() {
                   required
                   value={formData.name}
                   onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
+                    {
+                      setFormError("");
+                      setFormData({ ...formData, name: e.target.value });
+                    }
                   }
                   className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-xl px-4 py-3 text-sm font-semibold outline-none transition-all"
                 />
@@ -395,10 +439,13 @@ export default function PelangganPage() {
                   required
                   value={formData.phone}
                   onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      phone: sanitizePhoneNumber(e.target.value),
-                    })
+                    {
+                      setFormError("");
+                      setFormData({
+                        ...formData,
+                        phone: sanitizePhoneNumber(e.target.value),
+                      });
+                    }
                   }
                   className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-xl px-4 py-3 text-sm font-semibold outline-none transition-all"
                 />

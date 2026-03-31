@@ -303,7 +303,7 @@ export default function LoginPage() {
                     {formData.password.length < 6 ? (
                       <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={12}/> Kata Sandi terlalu pendek</span>
                     ) : (
-                      <span className="text-emerald-500 flex items-center gap-1"><Check size={12}/> Kata Sandi valid</span>
+                      <span className="text-emerald-500 flex items-center gap-1"><Check size={12}/> Kata Sandi Benar</span>
                     )}
                   </div>
                 )}
@@ -378,4 +378,4 @@ export default function LoginPage() {
       </a>
     </AnimatedPage>
   );
-}
+}

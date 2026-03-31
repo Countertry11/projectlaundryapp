@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FaChartBar, FaCalendar, FaFilePdf, FaStore } from "react-icons/fa";
+import { FaChartBar, FaCalendar, FaStore } from "react-icons/fa";
 import { Loader2, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
 import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
 import { AnimatedPage } from "@/components/AnimatedPage";
 import Table from "@/components/table";
 import Card, { StatsCard } from "@/components/card";
+import ReportExportPdfButton from "@/components/ReportExportPdfButton";
 
 interface LaporanHarian {
   tanggal: string;
@@ -41,8 +43,8 @@ export default function LaporanKasirPage() {
 
     try {
       setLoading(true);
+      setNoOutletAssigned(false);
 
-      // First, get the kasir's assigned outlet
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("outlet_id")
@@ -51,30 +53,36 @@ export default function LaporanKasirPage() {
 
       if (userError) throw userError;
 
-      const outletId = userData?.outlet_id;
+      const { data: outletRows } = await supabase
+        .from("outlets")
+        .select("id, name")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
 
-      if (!outletId) {
+      const outletAccess = resolveKasirOutletAccess(
+        (outletRows as OutletInfo[]) || [],
+        userData?.outlet_id,
+      );
+
+      if (!outletAccess.hasAssignedOutlet) {
         setNoOutletAssigned(true);
+        setOutletInfo(null);
+        setLaporan([]);
+        setTotalPendapatan(0);
+        setTotalTransaksi(0);
         setLoading(false);
         return;
       }
 
-      // Get outlet info
-      const { data: outletData } = await supabase
-        .from("outlets")
-        .select("id, name")
-        .eq("id", outletId)
-        .single();
+      setOutletInfo({
+        id: outletAccess.outletId,
+        name: outletAccess.displayLabel,
+      });
 
-      if (outletData) {
-        setOutletInfo(outletData);
-      }
-
-      // Fetch transactions for this outlet only
       const { data, error } = await supabase
         .from("transactions")
         .select("id, transaction_date, grand_total, payment_status, outlet_id")
-        .eq("outlet_id", outletId)
+        .eq("outlet_id", outletAccess.outletId)
         .order("transaction_date", { ascending: false });
 
       if (error) throw error;
@@ -197,18 +205,11 @@ export default function LaporanKasirPage() {
             )}
           </p>
         </div>
-        <button
+        <ReportExportPdfButton
           onClick={handleExportPDF}
           disabled={loading || exporting || laporan.length === 0}
-          className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {exporting ? (
-            <Loader2 className="animate-spin" size={16} />
-          ) : (
-            <FaFilePdf className="text-red-500" />
-          )}
-          {exporting ? "Mengekspor..." : "Export PDF"}
-        </button>
+          exporting={exporting}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

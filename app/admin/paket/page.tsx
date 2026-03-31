@@ -11,9 +11,13 @@ import {
   Search,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  hasDuplicateByNormalizedField,
+  normalizeDisplayValue,
+} from "@/lib/adminDuplicateValidation.mjs";
 import { Paket } from "@/types";
 import { formatRupiah } from "@/utils";
-import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
+import { AnimatedPage, StaggeredList } from "@/components/AnimatedPage";
 
 export default function PaketPage() {
   const [pakets, setPakets] = useState<Paket[]>([]);
@@ -24,6 +28,7 @@ export default function PaketPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [packageNameError, setPackageNameError] = useState("");
 
   const [formData, setFormData] = useState({
     nama_paket: "",
@@ -46,8 +51,10 @@ export default function PaketPage() {
 
       if (error) throw error;
       setPakets(data || []);
-    } catch (error: any) {
-      console.error("Gagal ambil data:", error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Terjadi kesalahan.";
+      console.error("Gagal ambil data:", message);
     } finally {
       setLoading(false);
     }
@@ -57,6 +64,7 @@ export default function PaketPage() {
     setFormData({ nama_paket: "", harga: "", jenis: "kiloan", id_outlet: "1" });
     setIsEditMode(false);
     setEditingId(null);
+    setPackageNameError("");
   }
 
   function openAddModal() {
@@ -65,6 +73,7 @@ export default function PaketPage() {
   }
 
   function openEditModal(paket: Paket) {
+    setPackageNameError("");
     setFormData({
       nama_paket: paket.nama_paket || "",
       harga: paket.harga?.toString() || "",
@@ -81,8 +90,32 @@ export default function PaketPage() {
     setSaving(true);
 
     try {
+      const normalizedPackageName = normalizeDisplayValue(formData.nama_paket);
+      const { data: existingPackages, error: duplicateError } = await supabase
+        .from("tb_paket")
+        .select("id, nama_paket");
+
+      if (duplicateError) throw duplicateError;
+
+      if (
+        hasDuplicateByNormalizedField(
+          existingPackages || [],
+          "nama_paket",
+          normalizedPackageName,
+          {
+            excludeId: editingId,
+          },
+        )
+      ) {
+        setPackageNameError(
+          "Nama paket sudah digunakan. Gunakan nama paket lain.",
+        );
+        return;
+      }
+
+      setPackageNameError("");
       const paketData = {
-        nama_paket: formData.nama_paket,
+        nama_paket: normalizedPackageName,
         harga: parseInt(formData.harga),
         jenis: formData.jenis,
         id_outlet: parseInt(formData.id_outlet),
@@ -105,8 +138,10 @@ export default function PaketPage() {
       setIsModalOpen(false);
       resetForm();
       fetchPakets();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Terjadi kesalahan.";
+      alert("Error: " + message);
     } finally {
       setSaving(false);
     }
@@ -121,8 +156,10 @@ export default function PaketPage() {
       alert("Paket berhasil dihapus!");
       setDeleteConfirm(null);
       fetchPakets();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Terjadi kesalahan.";
+      alert("Error: " + message);
     }
   }
 
@@ -268,10 +305,16 @@ export default function PaketPage() {
                   placeholder="Contoh: Cuci Kiloan Express"
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.nama_paket}
-                  onChange={(e) =>
-                    setFormData({ ...formData, nama_paket: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setPackageNameError("");
+                    setFormData({ ...formData, nama_paket: e.target.value });
+                  }}
                 />
+                {packageNameError ? (
+                  <p className="text-xs font-medium text-rose-500">
+                    {packageNameError}
+                  </p>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

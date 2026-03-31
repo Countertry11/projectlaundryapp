@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import {
+  AlertCircle,
   ChevronDown,
   Clock,
   Eye,
@@ -12,12 +13,28 @@ import {
   Save,
   Search,
   Store,
+  Trash2,
   User,
   X,
 } from "lucide-react";
 import { AnimatedPage } from "@/components/AnimatedPage";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
+import {
+  getMinimumAdminTransactionDateInput,
+  isAdminTransactionDateBeforeMinimum,
+} from "@/lib/adminTransactionDateGuard.mjs";
+import {
+  addPackageToTransactionItems,
+  calculateTransactionSummary,
+  removeTransactionItem,
+  updateTransactionItem,
+} from "@/lib/adminTransactionItems.mjs";
+import {
+  createInitialKasirTransactionFormData,
+  getDefaultKasirDueDateInput,
+} from "@/lib/kasirTransactionForm.mjs";
+import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
 import {
   Customer,
   Outlet,
@@ -28,7 +45,6 @@ import {
   TransactionStatus,
 } from "@/types";
 import {
-  addDaysToWibDateTime,
   formatDateTime,
   formatRupiah,
   toWibDatabaseDateTime,
@@ -38,6 +54,23 @@ import {
 type TransactionDetailWithPaket = TransactionDetail & {
   paket_id?: number | null;
   paket?: Paket | null;
+};
+
+type TransactionPackageItem = {
+  paket_id: number;
+  paket_name: string;
+  price: number;
+  quantity: number;
+  notes: string;
+};
+
+type TransactionFormData = {
+  outlet_id: string;
+  customer_id: string;
+  items: TransactionPackageItem[];
+  due_date: string;
+  additional_cost: number;
+  notes: string;
 };
 
 const statusColors: Record<string, string> = {
@@ -87,21 +120,14 @@ function getNextStatus(
   return null;
 }
 
-function getDefaultDueDateValue(referenceDate: Date = new Date()) {
-  return toWibDateTimeLocalValue(
-    new Date(referenceDate.getTime() + 3 * 24 * 60 * 60 * 1000),
-  );
-}
-
-function createInitialFormData(referenceDate: Date = new Date()) {
-  return {
-    customer_id: "",
-    paket_id: "",
-    qty: 1,
-    due_date: getDefaultDueDateValue(referenceDate),
-    additional_cost: 0,
-    notes: "",
-  };
+function createInitialFormData(
+  outletId = "",
+  referenceDate: Date = new Date(),
+): TransactionFormData {
+  return createInitialKasirTransactionFormData(
+    outletId,
+    referenceDate,
+  ) as TransactionFormData;
 }
 
 function hasDelayDiscountByDate(
@@ -140,6 +166,9 @@ export default function TransaksiKasir() {
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
   const [dueDateDraft, setDueDateDraft] = useState("");
+  const [minimumDueDateInput, setMinimumDueDateInput] = useState(() =>
+    getMinimumAdminTransactionDateInput(new Date()),
+  );
   const [minimumDueDateDraft, setMinimumDueDateDraft] = useState(() =>
     toWibDateTimeLocalValue(new Date()),
   );
@@ -152,10 +181,11 @@ export default function TransaksiKasir() {
   const [packages, setPackages] = useState<Paket[]>([]);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [formData, setFormData] = useState(createInitialFormData);
-  const [selectedPackage, setSelectedPackage] = useState<Paket | null>(null);
   const [userOutletId, setUserOutletId] = useState<string | null>(null);
-  const [primaryOutletId, setPrimaryOutletId] = useState("");
+  const [userOutletResolved, setUserOutletResolved] = useState(false);
   const [selectedOutletId, setSelectedOutletId] = useState("");
+  const kasirOutletAccess = resolveKasirOutletAccess(outlets, userOutletId);
+  const hasAssignedOutlet = kasirOutletAccess.hasAssignedOutlet;
 
   function hasDelayDiscount(trx: Transaction & { customer?: Customer | undefined }) {
     return hasDelayDiscountByDate(trx.transaction_date, trx.due_date);
@@ -221,14 +251,67 @@ export default function TransaksiKasir() {
   }, [user]);
 
   useEffect(() => {
+    if (!userOutletResolved) return;
     fetchTransactions();
-  }, [selectedOutletId]);
+  }, [selectedOutletId, userOutletResolved]);
 
   useEffect(() => {
-    if (selectedOutletId) return;
-    if (primaryOutletId) return void setSelectedOutletId(primaryOutletId);
-    if (userOutletId) setSelectedOutletId(userOutletId);
-  }, [primaryOutletId, selectedOutletId, userOutletId]);
+    if (!userOutletResolved) return;
+    setSelectedOutletId(userOutletId || "");
+  }, [userOutletId, userOutletResolved]);
+
+  function getPreferredOutletId() {
+    return selectedOutletId || userOutletId || "";
+  }
+
+  function resetTransactionForm(
+    outletId = getPreferredOutletId(),
+    referenceDate: Date = new Date(),
+  ) {
+    setFormData(createInitialFormData(outletId, referenceDate));
+  }
+
+  function openTransactionModal() {
+    if (!hasAssignedOutlet) {
+      alert(
+        "Akun kasir ini belum ditugaskan ke toko mana pun. Silakan hubungi admin.",
+      );
+      return;
+    }
+
+    setMinimumDueDateInput(getMinimumAdminTransactionDateInput(new Date()));
+    resetTransactionForm();
+    setIsModalOpen(true);
+  }
+
+  function closeTransactionModal() {
+    setIsModalOpen(false);
+    resetTransactionForm();
+  }
+
+  function handleAddPackage(paket: Paket) {
+    setFormData((prev) => ({
+      ...prev,
+      items: addPackageToTransactionItems(prev.items, paket),
+    }));
+  }
+
+  function handleUpdatePackageItem(
+    paketId: number,
+    patch: Partial<TransactionPackageItem>,
+  ) {
+    setFormData((prev) => ({
+      ...prev,
+      items: updateTransactionItem(prev.items, paketId, patch),
+    }));
+  }
+
+  function handleRemovePackageItem(paketId: number) {
+    setFormData((prev) => ({
+      ...prev,
+      items: removeTransactionItem(prev.items, paketId),
+    }));
+  }
 
   useEffect(() => {
     setDueDateDraft(toWibDateTimeLocalValue(selectedTransaction?.due_date));
@@ -247,7 +330,28 @@ export default function TransaksiKasir() {
     return () => window.clearInterval(intervalId);
   }, [selectedTransaction]);
 
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const syncMinimumDueDate = () => {
+      setMinimumDueDateInput(getMinimumAdminTransactionDateInput(new Date()));
+    };
+
+    syncMinimumDueDate();
+    const intervalId = window.setInterval(syncMinimumDueDate, 30 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isModalOpen]);
+
   async function fetchTransactions() {
+    if (!userOutletResolved) return;
+
+    if (!selectedOutletId) {
+      setTransactions([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       let query = supabase
@@ -289,62 +393,91 @@ export default function TransaksiKasir() {
         .order("name", { ascending: true });
       const activeOutlets = (outletData as Outlet[]) || [];
       setOutlets(activeOutlets);
-      const mainOutlet =
-        activeOutlets.find((outlet) =>
-          outlet.name.toLowerCase().includes("utama"),
-        ) || activeOutlets[0];
-      setPrimaryOutletId(mainOutlet?.id || "");
     } catch (error) {
       console.error("Error fetching data:", error);
     }
   }
 
   async function fetchUserOutlet() {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setUserOutletId(null);
+      setSelectedOutletId("");
+      setUserOutletResolved(true);
+      return;
+    }
+
     try {
       const { data } = await supabase
         .from("users")
         .select("outlet_id")
         .eq("id", user.id)
         .single();
-      setUserOutletId(data?.outlet_id || null);
+      const nextOutletId = data?.outlet_id || null;
+      setUserOutletId(nextOutletId);
+      setSelectedOutletId(nextOutletId || "");
     } catch (error) {
       console.error("Error fetching user outlet:", error);
+      setUserOutletId(null);
+      setSelectedOutletId("");
+    } finally {
+      setUserOutletResolved(true);
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (
-      !selectedOutletId ||
-      !formData.customer_id ||
-      !formData.paket_id ||
-      !selectedPackage
-    ) {
-      alert("Mohon pilih outlet, pelanggan, dan paket terlebih dahulu.");
+    const transactionOutletId = formData.outlet_id || getPreferredOutletId();
+    const currentMinimumDueDateInput = getMinimumAdminTransactionDateInput(
+      new Date(),
+    );
+    const transactionItems = formData.items;
+
+    if (!transactionOutletId) {
+      alert(
+        "Akun kasir ini belum ditugaskan ke toko mana pun. Silakan hubungi admin.",
+      );
       return;
     }
+
+    if (!formData.customer_id || transactionItems.length === 0) {
+      alert("Mohon pilih pelanggan dan minimal satu paket terlebih dahulu.");
+      return;
+    }
+
+    if (
+      isAdminTransactionDateBeforeMinimum(
+        formData.due_date,
+        currentMinimumDueDateInput,
+      )
+    ) {
+      alert("Batas waktu cuci tidak boleh sebelum waktu sekarang.");
+      return;
+    }
+
     setSaving(true);
     try {
       const placedAt = toWibDateTimeLocalValue(new Date());
       const invoiceNumber = `INV-${Date.now()}`;
       const dueDate = formData.due_date
         ? toWibDatabaseDateTime(formData.due_date)
-        : addDaysToWibDateTime(placedAt, 3);
+        : toWibDatabaseDateTime(getDefaultKasirDueDateInput(new Date()));
       const discountPercent = hasDelayDiscountByDate(placedAt, dueDate)
         ? DELAY_DISCOUNT_PERCENT
         : 0;
-      const subtotal = (selectedPackage?.harga || 0) * Number(formData.qty || 0);
-      const discountAmount = subtotal * (discountPercent / 100);
-      const subtotalAfterDiscount = subtotal - discountAmount;
       const additionalCost = Number(formData.additional_cost || 0);
-      const taxAmount = Math.round(subtotal * (AUTO_TAX_PERCENT / 100));
-      const grandTotal = subtotalAfterDiscount + additionalCost + taxAmount;
+      const { subtotal, taxAmount, grandTotal: summaryGrandTotal } =
+        calculateTransactionSummary(
+          transactionItems,
+          additionalCost,
+          AUTO_TAX_PERCENT,
+        );
+      const discountAmount = subtotal * (discountPercent / 100);
+      const grandTotal = summaryGrandTotal - discountAmount;
       const { data: transactionData, error: transactionError } = await supabase
         .from("transactions")
         .insert([
           {
-            outlet_id: selectedOutletId,
+            outlet_id: transactionOutletId,
             customer_id: formData.customer_id,
             kasir_id: user?.id,
             invoice_number: invoiceNumber,
@@ -362,21 +495,20 @@ export default function TransaksiKasir() {
         .select()
         .single();
       if (transactionError) throw transactionError;
-      const detailPayload = {
-        transaction_id: transactionData.id,
-        quantity: Number(formData.qty),
-        price: selectedPackage.harga || 0,
-        notes: formData.notes,
-      };
       const { error: detailError } = await supabase
         .from("transaction_details")
-        .insert([detailPayload]);
+        .insert(
+          transactionItems.map((item) => ({
+            transaction_id: transactionData.id,
+            quantity: Number(item.quantity || 1),
+            price: Number(item.price || 0),
+            notes: item.notes,
+          })),
+        );
       if (detailError) throw detailError;
       alert(`Transaksi berhasil disimpan.\nNo. Invoice: ${invoiceNumber}`);
-      setIsModalOpen(false);
-      setFormData(createInitialFormData());
-      setSelectedPackage(null);
       fetchTransactions();
+      closeTransactionModal();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Terjadi kesalahan.";
       alert(`Gagal menyimpan transaksi: ${message}`);
@@ -553,22 +685,27 @@ export default function TransaksiKasir() {
     return invoice.includes(term) || customerName.includes(term);
   });
 
-  const dueDatePreview = formData.due_date || getDefaultDueDateValue();
+  const dueDatePreview =
+    formData.due_date || getDefaultKasirDueDateInput(new Date());
   const draftDiscountPercent = hasDelayDiscountByDate(
     new Date(),
     dueDatePreview,
   )
     ? DELAY_DISCOUNT_PERCENT
     : 0;
-  const subtotalPreview = (selectedPackage?.harga || 0) * Number(formData.qty || 0);
+  const additionalCostPreview = Number(formData.additional_cost || 0);
+  const {
+    subtotal: subtotalPreview,
+    taxAmount: taxAmountPreview,
+    grandTotal: baseGrandTotalPreview,
+  } = calculateTransactionSummary(
+    formData.items,
+    additionalCostPreview,
+    AUTO_TAX_PERCENT,
+  );
   const discountAmountPreview = subtotalPreview * (draftDiscountPercent / 100);
   const subtotalAfterDiscountPreview = subtotalPreview - discountAmountPreview;
-  const additionalCostPreview = Number(formData.additional_cost || 0);
-  const taxAmountPreview = Math.round(
-    subtotalPreview * (AUTO_TAX_PERCENT / 100),
-  );
-  const grandTotalPreview =
-    subtotalAfterDiscountPreview + additionalCostPreview + taxAmountPreview;
+  const grandTotalPreview = baseGrandTotalPreview - discountAmountPreview;
   const currentStatusIndex = selectedTransaction
     ? statusSteps.findIndex((step) => step.value === selectedTransaction.status)
     : -1;
@@ -584,6 +721,25 @@ export default function TransaksiKasir() {
   const pickupBlocked =
     selectedTransaction?.status === "ready" &&
     selectedTransaction.payment_status !== "paid";
+
+  if (!loading && userOutletResolved && !hasAssignedOutlet) {
+    return (
+      <AnimatedPage className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+        <div className="max-w-md rounded-3xl border border-gray-100 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
+            <AlertCircle className="text-amber-600" size={32} />
+          </div>
+          <h2 className="mb-2 text-xl font-bold text-gray-800">
+            Belum Ada Toko Ditugaskan
+          </h2>
+          <p className="text-sm text-gray-500">
+            Anda belum ditugaskan ke toko manapun. Silakan hubungi Admin untuk
+            mendapatkan penugasan toko.
+          </p>
+        </div>
+      </AnimatedPage>
+    );
+  }
 
   return (
     <AnimatedPage className="min-h-screen bg-[#f8fafc] p-6 space-y-6 font-sans text-slate-800">
@@ -602,13 +758,9 @@ export default function TransaksiKasir() {
           </div>
         </div>
         <button
-          onClick={() => {
-            const now = new Date();
-            setFormData(createInitialFormData(now));
-            setSelectedPackage(null);
-            setIsModalOpen(true);
-          }}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-2xl font-bold text-sm transition-all shadow-md"
+          onClick={openTransactionModal}
+          disabled={!userOutletResolved || !hasAssignedOutlet}
+          className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-8 py-3.5 text-sm font-bold text-white shadow-md transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-100"
         >
           <Plus size={20} />
           Buat Transaksi Baru
@@ -638,23 +790,17 @@ export default function TransaksiKasir() {
           <label className="ml-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-black-600">
             <Store size={12} /> Toko Aktif
           </label>
-          <div className="relative">
-            <select
-              className="h-14 w-full appearance-none bg-white border border-blue-200 text-slate-700 px-4 pr-11 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/40 transition-all text-sm font-semibold shadow-sm"
-              value={selectedOutletId}
-              onChange={(e) => setSelectedOutletId(e.target.value)}
-            >
-              <option value="">Pilih Toko</option>
-              {outlets.map((outlet) => (
-                <option key={outlet.id} value={outlet.id}>
-                  {outlet.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
-              size={16}
-            />
+          <div
+            className={`rounded-2xl border px-4 py-3.5 shadow-sm ${
+              hasAssignedOutlet
+                ? "border-blue-200 bg-white text-slate-700"
+                : "border-amber-200 bg-amber-50 text-amber-700"
+            }`}
+          >
+            <p className="text-sm font-semibold">{kasirOutletAccess.displayLabel}</p>
+            <p className="mt-1 text-[11px] font-medium text-slate-400">
+              Toko mengikuti penugasan akun kasir.
+            </p>
           </div>
         </div>
       </div>
@@ -739,7 +885,7 @@ export default function TransaksiKasir() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setIsModalOpen(false)}
+            onClick={closeTransactionModal}
           ></div>
           <div className="relative bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-50 flex items-center justify-between shrink-0">
@@ -750,7 +896,7 @@ export default function TransaksiKasir() {
                 <h2 className="text-xl font-black text-gray-800">Transaksi Baru</h2>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeTransactionModal}
                 className="p-2 hover:bg-gray-100 rounded-full text-gray-400"
               >
                 <X size={20} />
@@ -783,46 +929,155 @@ export default function TransaksiKasir() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 col-span-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                  <Package size={12} /> Pilih Paket *
+                  <Package size={12} /> Pilihan Paket *
                 </label>
-                <div className="relative">
-                  <select
-                    required
-                    className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all appearance-none"
-                    value={formData.paket_id}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setFormData({ ...formData, paket_id: value });
-                      setSelectedPackage(
-                        packages.find((pkg) => pkg.id.toString() === value) || null,
+                {packages.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {packages.map((paket) => {
+                      const selectedItem = formData.items.find(
+                        (item) => item.paket_id === Number(paket.id),
                       );
-                    }}
-                  >
-                    <option value="">Pilih Paket</option>
-                    {packages.map((pkg) => (
-                      <option key={pkg.id} value={pkg.id}>
-                        {pkg.nama_paket} ({formatRupiah(pkg.harga)})
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                </div>
+
+                      return (
+                        <button
+                          key={paket.id}
+                          type="button"
+                          onClick={() => handleAddPackage(paket)}
+                          className={`rounded-2xl border px-4 py-4 text-left transition-all ${
+                            selectedItem
+                              ? "border-blue-300 bg-blue-50 shadow-sm"
+                              : "border-slate-200 bg-slate-50 hover:border-blue-200 hover:bg-white"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-black text-slate-800">
+                                {paket.nama_paket}
+                              </p>
+                              <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                                {paket.jenis
+                                  ? jenisLabels[paket.jenis] || paket.jenis
+                                  : "Paket"}
+                              </p>
+                            </div>
+                            {selectedItem ? (
+                              <span className="rounded-full bg-blue-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white">
+                                x{selectedItem.quantity}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-4 text-sm font-bold text-blue-700">
+                            {formatRupiah(paket.harga)}
+                          </p>
+                          <p className="mt-2 text-[11px] font-medium text-slate-500">
+                            Klik untuk menambahkan paket ke transaksi.
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-sm font-medium text-slate-400">
+                    Belum ada paket tersedia. Tambahkan paket dulu dari menu paket
+                    admin.
+                  </div>
+                )}
+                <p className="ml-1 text-[11px] text-slate-500">
+                  Klik kartu paket untuk menambahkan. Jika paket yang sama dipilih
+                  lagi, jumlahnya akan bertambah otomatis.
+                </p>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Jumlah *</label>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all"
-                  value={formData.qty}
-                  onChange={(e) =>
-                    setFormData({ ...formData, qty: e.target.value === "" ? 1 : Number(e.target.value) })
-                  }
-                />
+              <div className="space-y-3 col-span-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                    Rincian Paket Transaksi
+                  </label>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                    {formData.items.length} item
+                  </span>
+                </div>
+                {formData.items.length > 0 ? (
+                  <div className="space-y-3">
+                    {formData.items.map((item) => (
+                      <div
+                        key={item.paket_id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-800">
+                              {item.paket_name}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-blue-700">
+                              {formatRupiah(item.price)} / item
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePackageItem(item.paket_id)}
+                            className="rounded-xl bg-rose-50 p-2 text-rose-600 transition-colors hover:bg-rose-100"
+                            title="Hapus paket"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-[120px_minmax(0,1fr)_140px] gap-3 items-start">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Jumlah
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              className="w-full rounded-2xl border border-transparent bg-white px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-blue-600/20"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                handleUpdatePackageItem(item.paket_id, {
+                                  quantity: Number(e.target.value || 1),
+                                })
+                              }
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Keterangan Paket
+                            </label>
+                            <textarea
+                              rows={2}
+                              placeholder="Contoh: pisahkan warna putih, lipat rapi, dll."
+                              className="w-full resize-none rounded-2xl border border-transparent bg-white px-4 py-3 text-sm font-medium outline-none transition-all focus:border-blue-600/20"
+                              value={item.notes}
+                              onChange={(e) =>
+                                handleUpdatePackageItem(item.paket_id, {
+                                  notes: e.target.value,
+                                })
+                              }
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Subtotal
+                            </label>
+                            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700">
+                              {formatRupiah(item.price * item.quantity)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-sm font-medium text-slate-400">
+                    Belum ada paket yang dipilih. Klik salah satu kartu paket di
+                    atas untuk mulai menambahkan item transaksi.
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -832,6 +1087,7 @@ export default function TransaksiKasir() {
                 <input
                   type="datetime-local"
                   required
+                  min={minimumDueDateInput}
                   className="w-full rounded-2xl border border-orange-200 bg-orange-50 px-5 py-3.5 text-sm font-bold text-orange-700 outline-none transition-all focus:border-orange-400 focus:bg-white focus:ring-4 focus:ring-orange-500/10"
                   value={formData.due_date}
                   onChange={(e) =>
@@ -839,7 +1095,7 @@ export default function TransaksiKasir() {
                   }
                 />
                 <p className="ml-1 text-[11px] text-orange-500">
-                  Jam batas waktu bisa diubah sesuai jadwal cucian.
+                  Tanggal dan jam batas waktu tidak bisa sebelum waktu sekarang.
                 </p>
               </div>
 
@@ -913,11 +1169,34 @@ export default function TransaksiKasir() {
                 />
               </div>
 
-              {selectedPackage && (
+              {formData.items.length > 0 && (
                 <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl space-y-2">
                   <div className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50/80 px-4 py-3 text-sm">
                     <span className="font-semibold text-orange-600">Batas Waktu</span>
                     <span className="font-bold text-orange-700">{formatDateTime(dueDatePreview)}</span>
+                  </div>
+                  <div className="rounded-2xl border border-blue-100 bg-white/70 px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
+                      <span className="font-semibold">Paket Dipilih</span>
+                      <span className="font-black text-blue-700">
+                        {formData.items.length} item
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {formData.items.map((item) => (
+                        <div
+                          key={`summary-${item.paket_id}`}
+                          className="flex items-center justify-between gap-3 text-sm text-slate-600"
+                        >
+                          <span className="truncate">
+                            {item.paket_name} x{item.quantity}
+                          </span>
+                          <span className="font-semibold text-slate-800">
+                            {formatRupiah(item.price * item.quantity)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex justify-between text-sm text-gray-600">
                     <span>Subtotal:</span>
@@ -953,7 +1232,7 @@ export default function TransaksiKasir() {
               <div className="col-span-2 flex gap-4 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeTransactionModal}
                   className="flex-1 py-4 rounded-2xl font-bold text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition-all"
                 >
                   Batalkan

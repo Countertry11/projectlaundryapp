@@ -11,8 +11,19 @@ import {
   User,
   Package,
   Store,
+  Trash2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  getMinimumAdminTransactionDateInput,
+  isAdminTransactionDateBeforeMinimum,
+} from "@/lib/adminTransactionDateGuard.mjs";
+import {
+  addPackageToTransactionItems,
+  calculateTransactionSummary,
+  removeTransactionItem,
+  updateTransactionItem,
+} from "@/lib/adminTransactionItems.mjs";
 import { AnimatedPage } from "@/components/AnimatedPage";
 import { Customer, Outlet, Paket, Transaction } from "@/types";
 import {
@@ -26,6 +37,14 @@ import { useAuth } from "@/context/AuthContext";
 const DEFAULT_ESTIMATION_DAYS = 3;
 const AUTO_TAX_PERCENT = 10;
 
+type TransactionPackageItem = {
+  paket_id: number;
+  paket_name: string;
+  price: number;
+  quantity: number;
+  notes: string;
+};
+
 function getDefaultDueDateInput() {
   return toWibDateTimeLocalValue(
     new Date(
@@ -38,8 +57,7 @@ function createInitialFormData(outletId = "") {
   return {
     outlet_id: outletId,
     customer_id: "",
-    paket_id: "",
-    qty: 1,
+    items: [] as TransactionPackageItem[],
     due_date: getDefaultDueDateInput(),
     additional_cost: 0,
     payment_status: "unpaid" as "unpaid" | "paid",
@@ -64,10 +82,12 @@ export default function TransaksiKasir() {
   // Form state
   const [formData, setFormData] = useState(createInitialFormData);
 
-  const [selectedPackage, setSelectedPackage] = useState<Paket | null>(null);
   const [userOutletId, setUserOutletId] = useState<string | null>(null);
   const [primaryOutletId, setPrimaryOutletId] = useState("");
   const [selectedOutletId, setSelectedOutletId] = useState("");
+  const [minimumDueDateInput, setMinimumDueDateInput] = useState(() =>
+    getMinimumAdminTransactionDateInput(new Date()),
+  );
 
   useEffect(() => {
     fetchMasterData();
@@ -95,10 +115,10 @@ export default function TransaksiKasir() {
 
   function resetTransactionForm(outletId = getPreferredOutletId()) {
     setFormData(createInitialFormData(outletId));
-    setSelectedPackage(null);
   }
 
   function openTransactionModal() {
+    setMinimumDueDateInput(getMinimumAdminTransactionDateInput(new Date()));
     resetTransactionForm();
     setIsModalOpen(true);
   }
@@ -107,6 +127,43 @@ export default function TransaksiKasir() {
     setIsModalOpen(false);
     resetTransactionForm();
   }
+
+  function handleAddPackage(paket: Paket) {
+    setFormData((prev) => ({
+      ...prev,
+      items: addPackageToTransactionItems(prev.items, paket),
+    }));
+  }
+
+  function handleUpdatePackageItem(
+    paketId: number,
+    patch: Partial<TransactionPackageItem>,
+  ) {
+    setFormData((prev) => ({
+      ...prev,
+      items: updateTransactionItem(prev.items, paketId, patch),
+    }));
+  }
+
+  function handleRemovePackageItem(paketId: number) {
+    setFormData((prev) => ({
+      ...prev,
+      items: removeTransactionItem(prev.items, paketId),
+    }));
+  }
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const syncMinimumDueDate = () => {
+      setMinimumDueDateInput(getMinimumAdminTransactionDateInput(new Date()));
+    };
+
+    syncMinimumDueDate();
+    const intervalId = window.setInterval(syncMinimumDueDate, 30 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isModalOpen]);
 
   async function fetchTransactions() {
     setLoading(true);
@@ -185,18 +242,27 @@ export default function TransaksiKasir() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const transactionOutletId = formData.outlet_id || getPreferredOutletId();
-    const activePackage =
-      selectedPackage ||
-      packages.find((pkg) => pkg.id.toString() === formData.paket_id) ||
-      null;
+    const currentMinimumDueDateInput = getMinimumAdminTransactionDateInput(
+      new Date(),
+    );
+    const transactionItems = formData.items;
 
     if (
       !transactionOutletId ||
       !formData.customer_id ||
-      !formData.paket_id ||
-      !activePackage
+      transactionItems.length === 0
     ) {
-      alert("Mohon pilih outlet, pelanggan, dan paket terlebih dahulu!");
+      alert("Mohon pilih outlet, pelanggan, dan minimal satu paket terlebih dahulu!");
+      return;
+    }
+
+    if (
+      isAdminTransactionDateBeforeMinimum(
+        formData.due_date,
+        currentMinimumDueDateInput,
+      )
+    ) {
+      alert("Batas waktu cuci tidak boleh sebelum waktu sekarang.");
       return;
     }
 
@@ -208,10 +274,12 @@ export default function TransaksiKasir() {
         : toWibDatabaseDateTime(
           new Date(Date.now() + DEFAULT_ESTIMATION_DAYS * 24 * 60 * 60 * 1000),
         );
-      const subtotal = (activePackage.harga || 0) * Number(formData.qty || 1);
       const additionalCost = Number(formData.additional_cost || 0);
-      const taxAmount = Math.round(subtotal * (AUTO_TAX_PERCENT / 100));
-      const grandTotal = subtotal + additionalCost + taxAmount;
+      const { subtotal, taxAmount, grandTotal } = calculateTransactionSummary(
+        transactionItems,
+        additionalCost,
+        AUTO_TAX_PERCENT,
+      );
 
       const { data: trans, error: errTrans } = await supabase
         .from("transactions")
@@ -239,14 +307,14 @@ export default function TransaksiKasir() {
 
       const { error: errDetail } = await supabase
         .from("transaction_details")
-        .insert([
-          {
+        .insert(
+          transactionItems.map((item) => ({
             transaction_id: trans.id,
-            quantity: Number(formData.qty || 1),
-            price: activePackage.harga || 0,
-            notes: formData.notes,
-          },
-        ]);
+            quantity: Number(item.quantity || 1),
+            price: Number(item.price || 0),
+            notes: item.notes,
+          })),
+        );
 
       if (errDetail) throw errDetail;
 
@@ -327,15 +395,17 @@ export default function TransaksiKasir() {
   }
 
   const dueDatePreview = formData.due_date || getDefaultDueDateInput();
-  const subtotalPreview = selectedPackage
-    ? (selectedPackage.harga || 0) * Number(formData.qty || 1)
-    : 0;
-  const taxAmountPreview = Math.round(
-    subtotalPreview * (AUTO_TAX_PERCENT / 100),
+  const subtotalPreview = formData.items.reduce(
+    (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+    0,
   );
   const additionalCostPreview = Number(formData.additional_cost || 0);
-  const grandTotalPreview =
-    subtotalPreview + taxAmountPreview + additionalCostPreview;
+  const { taxAmount: taxAmountPreview, grandTotal: grandTotalPreview } =
+    calculateTransactionSummary(
+      formData.items,
+      additionalCostPreview,
+      AUTO_TAX_PERCENT,
+    );
 
   return (
     <AnimatedPage className="min-h-screen bg-[#f8fafc] p-6 space-y-6 font-sans text-slate-800">
@@ -599,31 +669,148 @@ export default function TransaksiKasir() {
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
                   <Package size={12} /> Pilihan Cuci Paket *
                 </label>
-                <div className="relative">
-                  <select
-                    required
-                    className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all appearance-none"
-                    value={formData.paket_id}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({ ...formData, paket_id: val });
-                      setSelectedPackage(
-                        packages.find((p) => p.id.toString() === val) || null,
+                {packages.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {packages.map((paket) => {
+                      const selectedItem = formData.items.find(
+                        (item) => item.paket_id === paket.id,
                       );
-                    }}
-                  >
-                    <option value="">Pilih Paket</option>
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nama_paket} ({formatRupiah(p.harga)})
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
-                    size={16}
-                  />
+
+                      return (
+                        <button
+                          key={paket.id}
+                          type="button"
+                          onClick={() => handleAddPackage(paket)}
+                          className={`rounded-2xl border px-4 py-4 text-left transition-all ${
+                            selectedItem
+                              ? "border-blue-300 bg-blue-50 shadow-sm"
+                              : "border-slate-200 bg-slate-50 hover:border-blue-200 hover:bg-white"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-black text-slate-800">
+                                {paket.nama_paket}
+                              </p>
+                              <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                                {paket.jenis || "paket"}
+                              </p>
+                            </div>
+                            {selectedItem ? (
+                              <span className="rounded-full bg-blue-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white">
+                                x{selectedItem.quantity}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-4 text-sm font-bold text-blue-700">
+                            {formatRupiah(paket.harga)}
+                          </p>
+                          <p className="mt-2 text-[11px] font-medium text-slate-500">
+                            Klik untuk menambahkan paket ke transaksi.
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-sm font-medium text-slate-400">
+                    Belum ada paket tersedia. Tambahkan paket dulu dari menu paket
+                    admin.
+                  </div>
+                )}
+                <p className="ml-1 text-[11px] font-medium text-slate-500">
+                  Klik kartu paket untuk menambahkan. Jika paket yang sama dipilih
+                  lagi, jumlahnya akan bertambah otomatis.
+                </p>
+              </div>
+
+              <div className="space-y-3 col-span-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                    Rincian Paket Transaksi
+                  </label>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                    {formData.items.length} item
+                  </span>
                 </div>
+                {formData.items.length > 0 ? (
+                  <div className="space-y-3">
+                    {formData.items.map((item) => (
+                      <div
+                        key={item.paket_id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-800">
+                              {item.paket_name}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-blue-700">
+                              {formatRupiah(item.price)} / item
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePackageItem(item.paket_id)}
+                            className="rounded-xl bg-rose-50 p-2 text-rose-600 transition-colors hover:bg-rose-100"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-[120px_minmax(0,1fr)_140px] gap-3 items-start">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Jumlah
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              className="w-full rounded-2xl border border-transparent bg-white px-4 py-3 text-sm font-semibold outline-none transition-all focus:border-blue-600/20"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                handleUpdatePackageItem(item.paket_id, {
+                                  quantity: Number(e.target.value || 1),
+                                })
+                              }
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Keterangan Paket
+                            </label>
+                            <textarea
+                              rows={2}
+                              placeholder="Contoh: pisahkan warna putih, lipat rapi, dll."
+                              className="w-full rounded-2xl border border-transparent bg-white px-4 py-3 text-sm font-medium outline-none transition-all focus:border-blue-600/20 resize-none"
+                              value={item.notes}
+                              onChange={(e) =>
+                                handleUpdatePackageItem(item.paket_id, {
+                                  notes: e.target.value,
+                                })
+                              }
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Subtotal
+                            </label>
+                            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700">
+                              {formatRupiah(item.price * item.quantity)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-sm font-medium text-slate-400">
+                    Belum ada paket yang dipilih. Klik salah satu kartu paket di atas
+                    untuk mulai menambahkan item transaksi.
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5 col-span-2">
@@ -633,6 +820,7 @@ export default function TransaksiKasir() {
                 <input
                   type="datetime-local"
                   required
+                  min={minimumDueDateInput}
                   className="w-full bg-gray-50 border border-transparent focus:border-blue-600/20 focus:bg-white rounded-2xl px-5 py-3.5 text-sm font-semibold outline-none transition-all"
                   value={formData.due_date}
                   onChange={(e) =>
@@ -687,7 +875,7 @@ export default function TransaksiKasir() {
               </div>
 
               {/* Total Display */}
-              {selectedPackage && (
+              {formData.items.length > 0 && (
                 <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl space-y-2">
                   <div className="flex items-center justify-between rounded-2xl border border-blue-100 bg-white/70 px-4 py-3 text-sm">
                     <span className="font-semibold text-slate-600">
@@ -697,12 +885,31 @@ export default function TransaksiKasir() {
                       {formatDateTime(dueDatePreview)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Paket Dipilih:</span>
-                    <span className="font-semibold">{selectedPackage.nama_paket}</span>
+                  <div className="rounded-2xl border border-white/80 bg-white/70 px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
+                      <span className="font-semibold">Ringkasan Paket</span>
+                      <span className="font-black text-blue-700">
+                        {formData.items.length} item
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {formData.items.map((item) => (
+                        <div
+                          key={item.paket_id}
+                          className="flex items-center justify-between gap-3 text-sm text-slate-600"
+                        >
+                          <span className="truncate">
+                            {item.paket_name} x{item.quantity}
+                          </span>
+                          <span className="font-semibold text-slate-700">
+                            {formatRupiah(item.price * item.quantity)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex justify-between text-sm text-gray-600">
-                    <span>Harga Paket:</span>
+                    <span>Subtotal Paket:</span>
                     <span className="font-semibold">{formatRupiah(subtotalPreview)}</span>
                   </div>
                   <div className="flex justify-between text-sm text-amber-600">

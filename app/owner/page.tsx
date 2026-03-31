@@ -1,201 +1,353 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  TrendingUp,
-  DollarSign,
-  ShoppingCart,
-  Users,
   Loader2,
+  Receipt,
+  Search,
+  ShoppingBag,
+  TrendingUp,
+  Users,
+  Wallet,
+  X,
 } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
+import {
+  AnimatedItem,
+  AnimatedPage,
+  StaggeredList,
+} from "@/components/AnimatedPage";
+import DashboardPanel from "@/components/dashboard/DashboardPanel";
+import DashboardStatCard from "@/components/dashboard/DashboardStatCard";
 import { supabase } from "@/lib/supabase";
 import { formatRupiah } from "@/utils";
-import Link from "next/link";
-import { AnimatedPage, StaggeredList, AnimatedItem, CountUp } from "@/components/AnimatedPage";
+
+type Transaction = {
+  id: string;
+  invoice_number: string;
+  status: string;
+  payment_status: string;
+  grand_total: number;
+  created_at?: string;
+  customer: { name: string } | null;
+};
+
+type TransactionRow = Omit<Transaction, "customer"> & {
+  customer: { name: string } | Array<{ name: string }> | null;
+};
+
+const initialStats = {
+  totalOrders: 0,
+  totalRevenue: 0,
+  totalTransactions: 0,
+  totalCustomers: 0,
+};
 
 export default function OwnerDashboardPage() {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    totalRevenue: 0,
-    totalTransactions: 0,
-    totalCustomers: 0,
-    totalOutlets: 0,
-  });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [stats, setStats] = useState(initialStats);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  async function fetchDashboardData() {
+  const fetchDashboardData = useCallback(async () => {
     setLoading(true);
+
     try {
-      // Fetch transactions
-      const { data: transData } = await supabase
-        .from("transactions")
-        .select("grand_total, payment_status");
+      const [
+        { data: recentTransactions, error: recentTransactionsError },
+        { data: transactionRows, error: transactionError },
+        { count: customerCount, error: customerError },
+      ] = await Promise.all([
+        supabase
+          .from("transactions")
+          .select(
+            `
+            id,
+            invoice_number,
+            status,
+            payment_status,
+            grand_total,
+            created_at,
+            customer:customers(name)
+          `,
+          )
+          .order("created_at", { ascending: false })
+          .limit(8),
+        supabase.from("transactions").select("grand_total, payment_status"),
+        supabase
+          .from("customers")
+          .select("*", { count: "exact", head: true }),
+      ]);
 
-      let revenue = 0;
-      (transData || []).forEach((t) => {
-        if (t.payment_status === "paid") {
-          revenue += Number(t.grand_total) || 0;
-        }
-      });
+      if (recentTransactionsError) throw recentTransactionsError;
+      if (transactionError) throw transactionError;
+      if (customerError) throw customerError;
 
-      // Fetch customers count
-      const { count: customerCount } = await supabase
-        .from("customers")
-        .select("*", { count: "exact", head: true });
+      const nextStats = (transactionRows || []).reduce(
+        (accumulator, transaction) => {
+          accumulator.totalTransactions += 1;
+          if (transaction.payment_status === "paid") {
+            accumulator.totalRevenue += Number(transaction.grand_total) || 0;
+          }
+          return accumulator;
+        },
+        {
+          totalOrders: 0,
+          totalRevenue: 0,
+          totalTransactions: 0,
+          totalCustomers: customerCount || 0,
+        },
+      );
 
-      // Fetch outlets count
-      const { count: outletCount } = await supabase
-        .from("outlets")
-        .select("*", { count: "exact", head: true });
+      nextStats.totalOrders = nextStats.totalTransactions;
 
-      setStats({
-        totalRevenue: revenue,
-        totalTransactions: transData?.length || 0,
-        totalCustomers: customerCount || 0,
-        totalOutlets: outletCount || 0,
-      });
+      const normalizedTransactions = (
+        (recentTransactions as TransactionRow[]) || []
+      ).map((transaction) => ({
+        ...transaction,
+        customer: Array.isArray(transaction.customer)
+          ? transaction.customer[0] || null
+          : transaction.customer,
+      }));
+
+      setStats(nextStats);
+      setTransactions(normalizedTransactions as Transaction[]);
     } catch (error) {
-      console.error("Error fetching dashboard data:", error);
+      console.error("Error fetching owner dashboard data:", error);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    void fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const filteredTransactions = transactions.filter((transaction) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      transaction.invoice_number?.toLowerCase().includes(query) ||
+      transaction.customer?.name?.toLowerCase().includes(query)
+    );
+  });
+
+  const statusColors: Record<string, string> = {
+    pending:
+      "border border-blue-200 bg-gradient-to-r from-blue-50 to-blue-100/80 text-blue-700",
+    processing:
+      "border border-orange-200 bg-gradient-to-r from-orange-50 to-orange-100/80 text-orange-700",
+    ready:
+      "border border-purple-200 bg-gradient-to-r from-purple-50 to-purple-100/80 text-purple-700",
+    completed:
+      "border border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-100/80 text-emerald-700",
+    cancelled:
+      "border border-rose-200 bg-gradient-to-r from-rose-50 to-rose-100/80 text-rose-700",
+  };
+
+  const statusLabels: Record<string, string> = {
+    pending: "BARU",
+    processing: "PROSES",
+    ready: "SIAP",
+    completed: "SELESAI",
+    cancelled: "BATAL",
+  };
+
+  function formatDate(dateString?: string) {
+    if (!dateString) return "-";
+
+    return new Date(dateString).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f8fafc] p-4 md:p-8 space-y-6 text-slate-800 font-sans">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100 gap-4 animate-fadeInUp">
-        <div>
-          <h1 className="text-xl font-black text-gray-800 tracking-tight animate-slideInRight" style={{ animationDelay: '100ms' }}>
-            Beranda pemilik
-          </h1>
-          <p className="text-gray-500 text-xs font-medium animate-slideInRight" style={{ animationDelay: '200ms' }}>
-            Selamat datang kembali,{" "}
-            <span className="text-blue-600 font-bold capitalize">
-              {user?.full_name || "Owner"}
-            </span>
-          </p>
-        </div>
-      </div>
+    <AnimatedPage className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30 p-4 font-sans md:p-8">
+      <div className="space-y-6">
+        <StaggeredList
+          className="mx-auto grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+          animation="scaleIn"
+        >
+          <DashboardStatCard
+            title="Total Pesanan"
+            value={stats.totalOrders}
+            icon={ShoppingBag}
+            tone="blue"
+            trend="Semua pesanan"
+            subtitle="Total seluruh pesanan"
+          />
+          <DashboardStatCard
+            title="Total Transaksi"
+            value={stats.totalTransactions}
+            icon={TrendingUp}
+            tone="indigo"
+            trend="Semua transaksi"
+            subtitle="Total seluruh transaksi"
+          />
+          <DashboardStatCard
+            title="Total Pelanggan"
+            value={stats.totalCustomers}
+            icon={Users}
+            tone="pink"
+            trend="Terdaftar"
+            subtitle="Jumlah pelanggan"
+          />
+          <DashboardStatCard
+            title="Total Pendapatan"
+            value={stats.totalRevenue}
+            icon={Wallet}
+            tone="purple"
+            trend="Pendapatan"
+            subtitle="Dari transaksi lunas"
+            isCurrency
+          />
+        </StaggeredList>
 
-      {/* Stats Cards */}
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="animate-spin text-blue-500" size={40} />
-        </div>
-      ) : (
-        <>
-          <StaggeredList
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5"
-            animation="scaleIn"
-            staggerDelay={100}
+        <AnimatedItem index={5} className="mx-auto max-w-6xl">
+          <DashboardPanel
+            icon={TrendingUp}
+            title="Aktivitas Terkini"
+            action={
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="text"
+                  placeholder="Cari invoice atau pelanggan..."
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-9 pr-9 text-sm font-medium text-gray-900 placeholder-gray-500 transition-all focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 transition-colors hover:text-gray-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            }
           >
-            <StatCard
-              title="Total Pendapatan"
-              value={<CountUp end={stats.totalRevenue} formatter={formatRupiah} />}
-              icon={DollarSign}
-              color="bg-blue-600"
-            />
-            <StatCard
-              title="Total Transaksi"
-              value={<CountUp end={stats.totalTransactions} />}
-              icon={ShoppingCart}
-              color="bg-indigo-600"
-            />
-            <StatCard
-              title="Total Pelanggan"
-              value={<CountUp end={stats.totalCustomers} />}
-              icon={Users}
-              color="bg-emerald-600"
-            />
-            <StatCard
-              title="Total Toko"
-              value={<CountUp end={stats.totalOutlets} />}
-              icon={TrendingUp}
-              color="bg-orange-600"
-            />
-          </StaggeredList>
-
-          {/* Summary */}
-          <AnimatedItem animation="fadeInUp" style={{ animationDelay: '400ms' }} className="bg-white rounded-[24px] shadow-sm border border-gray-100 p-6">
-            <h2 className="text-sm font-black text-gray-800 tracking-[0.1em] uppercase mb-6">
-              Ringkasan Laporan
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-blue-200 transition-all cursor-default">
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1 group-hover:text-blue-500 transition-colors">
-                  Pendapatan
-                </p>
-                <p className="text-lg font-black text-gray-800">
-                  <CountUp end={stats.totalRevenue} formatter={formatRupiah} />
+            {loading ? (
+              <div className="flex flex-col items-center justify-center bg-white/50 py-20">
+                <Loader2 className="mb-3 animate-spin text-blue-600" size={40} />
+                <p className="animate-pulse text-sm text-gray-500">
+                  Memuat data transaksi...
                 </p>
               </div>
-              <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-indigo-200 transition-all cursor-default">
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1 group-hover:text-indigo-500 transition-colors">
-                  Transaksi
-                </p>
-                <p className="text-lg font-black text-gray-800">
-                  <CountUp end={stats.totalTransactions} /> <span className="text-sm text-gray-400">Pesanan</span>
-                </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-gradient-to-r from-gray-50 to-gray-100/50">
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">
+                        Invoice
+                      </th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">
+                        Pelanggan
+                      </th>
+                      <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-gray-500">
+                        Status
+                      </th>
+                      <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-gray-500">
+                        Pembayaran
+                      </th>
+                      <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-gray-500">
+                        Total Bayar
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredTransactions.length > 0 ? (
+                      filteredTransactions.map((transaction, index) => (
+                        <tr
+                          key={transaction.id}
+                          className="group transition-all duration-300 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-indigo-50/50"
+                          style={{ animationDelay: `${index * 50}ms` }}
+                        >
+                          <td className="px-6 py-5">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-blue-600 transition-colors group-hover:text-blue-700">
+                                {transaction.invoice_number}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {formatDate(transaction.created_at)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-blue-100 to-purple-100">
+                                <span className="text-xs font-bold text-blue-600">
+                                  {transaction.customer?.name?.charAt(0) || "?"}
+                                </span>
+                              </div>
+                              <span className="font-medium text-gray-800">
+                                {transaction.customer?.name || "-"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 text-center">
+                            <span
+                              className={`inline-block rounded-xl px-4 py-1.5 text-[10px] font-black tracking-wider shadow-sm ${
+                                statusColors[transaction.status] ||
+                                statusColors.pending
+                              }`}
+                            >
+                              {statusLabels[transaction.status] ||
+                                transaction.status?.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-6 py-5 text-center">
+                            <span
+                              className={`inline-block rounded-xl px-4 py-1.5 text-[10px] font-black tracking-wider shadow-sm ${
+                                transaction.payment_status === "paid"
+                                  ? "border border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-100/80 text-emerald-700"
+                                  : "border border-rose-200 bg-gradient-to-r from-rose-50 to-rose-100/80 text-rose-700"
+                              }`}
+                            >
+                              {transaction.payment_status === "paid"
+                                ? "LUNAS"
+                                : "BELUM BAYAR"}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-6 py-5 text-right">
+                            <span className="text-sm font-bold text-gray-800">
+                              {formatRupiah(transaction.grand_total)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-16">
+                          <div className="flex flex-col items-center justify-center text-center">
+                            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-gray-100">
+                              <Receipt className="h-8 w-8 text-gray-400" />
+                            </div>
+                            <p className="mb-1 font-medium text-gray-500">
+                              {searchQuery
+                                ? "Tidak ada hasil ditemukan"
+                                : "Belum ada transaksi"}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {searchQuery
+                                ? "Coba kata kunci lain untuk menemukan transaksi."
+                                : "Aktivitas transaksi terbaru akan muncul di sini."}
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-orange-200 transition-all cursor-default">
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1 group-hover:text-orange-500 transition-colors">
-                  Toko
-                </p>
-                <p className="text-lg font-black text-gray-800">
-                  <CountUp end={stats.totalOutlets} /> <span className="text-sm text-gray-400">Lokasi</span>
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 text-center">
-              <Link
-                href="/owner/laporan"
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors text-sm"
-              >
-                Lihat Laporan Lengkap <TrendingUp size={16} />
-              </Link>
-            </div>
-          </AnimatedItem>
-        </>
-      )}
+            )}
+          </DashboardPanel>
+        </AnimatedItem>
+      </div>
     </AnimatedPage>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  color,
-}: {
-  title: string;
-  value: React.ReactNode;
-  icon: React.ElementType;
-  color: string;
-}) {
-  return (
-    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 hover:shadow-md transition-all group overflow-hidden">
-      <div
-        className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform`}
-      >
-        <Icon className="w-5 h-5 text-white" strokeWidth={2.5} />
-      </div>
-
-      <div className="flex flex-col min-w-0">
-        <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.1em] mb-0.5 truncate">
-          {title}
-        </p>
-        <h3 className="font-black text-gray-800 leading-tight text-base">
-          {value}
-        </h3>
-      </div>
-    </div>
   );
 }

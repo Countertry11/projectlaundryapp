@@ -1,20 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import {
-  Download,
-  Printer,
-  Search,
-  Store,
-  ArrowUpRight,
-  BarChart3,
-  Loader2,
-} from "lucide-react";
-import { FaFilePdf } from "react-icons/fa";
+import { useState, useEffect } from "react";
+import { Printer, Search, BarChart3, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
 import { AnimatedPage, AnimatedItem } from "@/components/AnimatedPage";
+import ReportExportPdfButton from "@/components/ReportExportPdfButton";
 
 interface OutletReport {
   id: string;
@@ -156,18 +148,11 @@ export default function LaporanOwnerPage() {
           >
             <Printer size={14} /> Cetak
           </button>
-          <button
+          <ReportExportPdfButton
             onClick={handleExportPDF}
             disabled={loading || exporting || outlets.length === 0}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 shadow-md shadow-blue-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {exporting ? (
-              <Loader2 className="animate-spin" size={14} />
-            ) : (
-              <FaFilePdf size={14} />
-            )}
-            {exporting ? "Mengekspor..." : "Export PDF"}
-          </button>
+            exporting={exporting}
+          />
         </div>
       </div>
 

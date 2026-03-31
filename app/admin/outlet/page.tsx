@@ -14,8 +14,13 @@ import {
   Search,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  hasDuplicateByNormalizedField,
+  hasDuplicateBySanitizedPhoneField,
+  normalizeDisplayValue,
+} from "@/lib/adminDuplicateValidation.mjs";
 import { Outlet } from "@/types";
-import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
+import { AnimatedPage, StaggeredList } from "@/components/AnimatedPage";
 import { sanitizePhoneNumber } from "@/utils";
 
 export default function OutletPage() {
@@ -27,6 +32,8 @@ export default function OutletPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [nameError, setNameError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -51,8 +58,10 @@ export default function OutletPage() {
 
       if (error) throw error;
       setOutlets(data || []);
-    } catch (error: any) {
-      console.error("Gagal ambil data:", error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Terjadi kesalahan.";
+      console.error("Gagal ambil data:", message);
     } finally {
       setLoading(false);
     }
@@ -62,6 +71,8 @@ export default function OutletPage() {
     setFormData({ name: "", address: "", phone: "", email: "", manager: "" });
     setIsEditMode(false);
     setEditingId(null);
+    setNameError("");
+    setPhoneError("");
   }
 
   function openAddModal() {
@@ -70,6 +81,8 @@ export default function OutletPage() {
   }
 
   function openEditModal(outlet: Outlet) {
+    setNameError("");
+    setPhoneError("");
     setFormData({
       name: outlet.name || "",
       address: outlet.address || "",
@@ -86,14 +99,64 @@ export default function OutletPage() {
     e.preventDefault();
     setSaving(true);
     const sanitizedPhone = sanitizePhoneNumber(formData.phone);
+    const normalizedName = normalizeDisplayValue(formData.name);
 
     try {
+      const { data: existingOutlets, error: duplicateError } = await supabase
+        .from("outlets")
+        .select("id, name, phone")
+        .eq("is_active", true);
+
+      if (duplicateError) throw duplicateError;
+
+      const hasDuplicateName = hasDuplicateByNormalizedField(
+        existingOutlets || [],
+        "name",
+        normalizedName,
+        {
+          excludeId: editingId,
+        },
+      );
+      const hasDuplicatePhone = hasDuplicateBySanitizedPhoneField(
+        existingOutlets || [],
+        "phone",
+        sanitizedPhone,
+        {
+          excludeId: editingId,
+        },
+      );
+
+      setNameError(
+        hasDuplicateName
+          ? "Nama toko sudah digunakan. Gunakan nama toko lain."
+          : "",
+      );
+      setPhoneError(
+        hasDuplicatePhone
+          ? "Nomor telepon toko sudah digunakan outlet lain."
+          : "",
+      );
+
+      if (hasDuplicateName || hasDuplicatePhone) {
+        return;
+      }
+
+      setNameError("");
+      setPhoneError("");
+      const outletPayload = {
+        ...formData,
+        name: normalizedName,
+        address: normalizeDisplayValue(formData.address),
+        email: normalizeDisplayValue(formData.email),
+        manager: normalizeDisplayValue(formData.manager),
+        phone: sanitizedPhone,
+      };
+
       if (isEditMode && editingId) {
         const { error } = await supabase
           .from("outlets")
           .update({
-            ...formData,
-            phone: sanitizedPhone,
+            ...outletPayload,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editingId);
@@ -103,8 +166,7 @@ export default function OutletPage() {
       } else {
         const { error } = await supabase.from("outlets").insert([
           {
-            ...formData,
-            phone: sanitizedPhone,
+            ...outletPayload,
             is_active: true,
           },
         ]);
@@ -116,8 +178,10 @@ export default function OutletPage() {
       setIsModalOpen(false);
       resetForm();
       fetchOutlets();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Terjadi kesalahan.";
+      alert("Error: " + message);
     } finally {
       setSaving(false);
     }
@@ -132,8 +196,10 @@ export default function OutletPage() {
       alert("Outlet berhasil dihapus!");
       setDeleteConfirm(null);
       fetchOutlets();
-    } catch (error: any) {
-      alert("Error: " + error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Terjadi kesalahan.";
+      alert("Error: " + message);
     }
   }
 
@@ -273,10 +339,14 @@ export default function OutletPage() {
                   placeholder="Contoh: Cabang Utama"
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setNameError("");
+                    setFormData({ ...formData, name: e.target.value });
+                  }}
                 />
+                {nameError ? (
+                  <p className="text-xs font-medium text-rose-500">{nameError}</p>
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -291,13 +361,17 @@ export default function OutletPage() {
                   placeholder="08xxxxxxxxxx"
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.phone}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setPhoneError("");
                     setFormData({
                       ...formData,
                       phone: sanitizePhoneNumber(e.target.value),
-                    })
-                  }
+                    });
+                  }}
                 />
+                {phoneError ? (
+                  <p className="text-xs font-medium text-rose-500">{phoneError}</p>
+                ) : null}
               </div>
 
               <div className="space-y-2">

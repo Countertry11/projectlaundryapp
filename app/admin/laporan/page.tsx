@@ -7,7 +7,6 @@ import {
   FaStore,
   FaCalendarAlt,
   FaArrowLeft,
-  FaFilePdf,
 } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -17,6 +16,7 @@ import { exportToPDF } from "@/utils/exportPdf";
 import Table from "@/components/table";
 import Card from "@/components/card";
 import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
+import ReportExportPdfButton from "@/components/ReportExportPdfButton";
 
 interface LaporanHarian {
   tanggal: string;
@@ -216,18 +216,11 @@ export default function LaporanAdminPage() {
             </div>
 
             {/* Export Button */}
-            <button
+            <ReportExportPdfButton
               onClick={handleExportPDF}
               disabled={loading || exporting || laporanHarian.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-gray-200 font-bold text-blue-600 hover:bg-blue-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {exporting ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <FaFilePdf />
-              )}
-              {exporting ? "Mengekspor..." : "Export PDF"}
-            </button>
+              exporting={exporting}
+            />
           </div>
         </div>
 
