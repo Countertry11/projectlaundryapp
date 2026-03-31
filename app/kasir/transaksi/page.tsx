@@ -35,6 +35,7 @@ import {
   getDefaultKasirDueDateInput,
 } from "@/lib/kasirTransactionForm.mjs";
 import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
+import { normalizeTransactionDueDateValue } from "@/lib/transactionDueDate.mjs";
 import {
   Customer,
   Outlet,
@@ -363,10 +364,17 @@ export default function TransaksiKasir() {
       const { data, error } = await query;
       if (error) console.error("Error loading transactions:", error);
       else {
+        const normalizedTransactions = (((data as Transaction[]) || []) as Array<
+          Transaction & { customer?: Customer | undefined }
+        >).map((transaction) => ({
+          ...transaction,
+          due_date: normalizeTransactionDueDateValue(
+            transaction.due_date,
+            transaction.transaction_date,
+          ),
+        }));
         const syncedTransactions = await syncDelayDiscounts(
-          ((data as Transaction[]) || []) as Array<
-            Transaction & { customer?: Customer | undefined }
-          >,
+          normalizedTransactions,
         );
         setTransactions(syncedTransactions as Transaction[]);
       }

@@ -24,6 +24,7 @@ import {
   removeTransactionItem,
   updateTransactionItem,
 } from "@/lib/adminTransactionItems.mjs";
+import { normalizeTransactionDueDateValue } from "@/lib/transactionDueDate.mjs";
 import { AnimatedPage } from "@/components/AnimatedPage";
 import { Customer, Outlet, Paket, Transaction } from "@/types";
 import {
@@ -186,7 +187,18 @@ export default function TransaksiKasir() {
       const { data: transData, error: transErr } = await query;
 
       if (transErr) console.error("Error loading transactions:", transErr);
-      else setTransactions(transData || []);
+      else {
+        const normalizedTransactions = ((transData as Transaction[]) || []).map(
+          (transaction) => ({
+            ...transaction,
+            due_date: normalizeTransactionDueDateValue(
+              transaction.due_date,
+              transaction.transaction_date,
+            ),
+          }),
+        );
+        setTransactions(normalizedTransactions);
+      }
     } catch (error) {
       console.error("Error fetching transactions:", error);
     } finally {
