@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Membatasi tanggal `Batas Waktu Cuci` pada tambah transaksi admin agar tidak bisa sebelum hari ini.
+**Goal:** Membatasi tanggal dan jam `Batas Waktu Cuci` pada tambah transaksi admin agar tidak bisa sebelum waktu sekarang.
 
-**Architecture:** Buat helper kecil yang menghitung awal hari WIB untuk kebutuhan input transaksi admin, lalu gunakan helper itu pada form `datetime-local` dan di `handleSubmit` sebagai validasi server-side-like di level klien. Pendekatan ini menjaga aturan tanggal terpusat dan mudah diuji tanpa merombak file transaksi yang besar.
+**Architecture:** Buat helper kecil yang menghitung waktu minimum WIB saat ini untuk kebutuhan input transaksi admin, lalu gunakan helper itu pada form `datetime-local` dan di `handleSubmit` sebagai validasi kedua di level klien. Nilai minimum disinkronkan berkala saat modal terbuka agar jam yang baru lewat ikut terkunci tanpa merombak file transaksi yang besar.
 
 **Tech Stack:** Next.js App Router, React, TypeScript/TSX, utilitas waktu WIB, Node test runner.
 
@@ -28,12 +28,12 @@ import {
   isAdminTransactionDateBeforeMinimum,
 } from "./adminTransactionDateGuard.mjs";
 
-test("getMinimumAdminTransactionDateInput returns start of current WIB day", () => {
+test("getMinimumAdminTransactionDateInput returns current WIB minute", () => {
   const result = getMinimumAdminTransactionDateInput(
     new Date("2026-03-31T17:45:00.000Z"),
   );
 
-  assert.equal(result, "2026-04-01T00:00");
+  assert.equal(result, "2026-04-01T00:45");
 });
 ```
 
@@ -46,7 +46,7 @@ Expected: FAIL because helper file does not exist yet.
 
 ```js
 export function getMinimumAdminTransactionDateInput(now = new Date()) {
-  // returns WIB start-of-day in YYYY-MM-DDTHH:mm
+  // returns current WIB time in YYYY-MM-DDTHH:mm
 }
 ```
 
@@ -73,12 +73,12 @@ git commit -m "test: add admin transaction date guard helper"
 
 - [ ] **Step 1: Write the failing test**
 
-Tambahkan test yang memastikan tanggal hari ini tetap valid:
+Tambahkan test yang memastikan waktu yang sama atau setelah minimum tetap valid:
 
 ```js
-test("isAdminTransactionDateBeforeMinimum allows values on the same day", () => {
+test("isAdminTransactionDateBeforeMinimum allows values at or after minimum", () => {
   assert.equal(
-    isAdminTransactionDateBeforeMinimum("2026-04-01T08:30", "2026-04-01T00:00"),
+    isAdminTransactionDateBeforeMinimum("2026-04-01T00:45", "2026-04-01T00:45"),
     false,
   );
 });
@@ -99,6 +99,7 @@ const minimumDueDateInput = getMinimumAdminTransactionDateInput(new Date());
 
 Lalu:
 - tambahkan `min={minimumDueDateInput}` pada input `datetime-local`
+- sinkronkan `minimumDueDateInput` berkala saat modal terbuka
 - blokir submit jika `formData.due_date` lebih kecil dari `minimumDueDateInput`
 - tampilkan pesan alert yang jelas saat validasi gagal
 
