@@ -25,6 +25,8 @@ import {
   isAdminUserRoleLocked,
   resolveAdminUserSubmitRole,
 } from "@/lib/adminUserRoleGuard.mjs";
+import { normalizeDisplayValue } from "@/lib/adminDuplicateValidation.mjs";
+import { getAdminUserDuplicateMessage } from "@/lib/adminUserDuplicateValidation.mjs";
 import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
 import { sanitizePhoneNumber } from "@/utils";
 
@@ -33,7 +35,6 @@ type UserPayload = {
   username: string;
   password?: string;
   phone: string;
-  email: string;
   role: UserType["role"];
   outlet_id: string | null;
   is_active?: boolean;
@@ -70,6 +71,7 @@ export default function AdminUserPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [roleError, setRoleError] = useState("");
+  const [formError, setFormError] = useState("");
   const [originalRole, setOriginalRole] = useState<UserType["role"] | null>(null);
 
   const [formData, setFormData] = useState({
@@ -77,7 +79,6 @@ export default function AdminUserPage() {
     username: "",
     password: "",
     phone: "",
-    email: "",
     role: "kasir" as "admin" | "kasir" | "owner",
     outlet_id: "" as string,
   });
@@ -220,7 +221,6 @@ export default function AdminUserPage() {
       username: "",
       password: "",
       phone: "",
-      email: "",
       role: "kasir",
       outlet_id: getDefaultOutletId("kasir"),
     });
@@ -228,6 +228,7 @@ export default function AdminUserPage() {
     setEditingId(null);
     setOriginalRole(null);
     setRoleError("");
+    setFormError("");
   }
 
   function openAddModal() {
@@ -237,12 +238,12 @@ export default function AdminUserPage() {
 
   function openEditModal(user: UserType) {
     setRoleError("");
+    setFormError("");
     setFormData({
       full_name: user.full_name || "",
       username: user.username,
       password: "", // Don't show existing password
       phone: sanitizePhoneNumber(user.phone),
-      email: user.email || "",
       role: user.role,
       outlet_id:
         user.role === "kasir"
@@ -265,6 +266,7 @@ export default function AdminUserPage() {
       requestedRole: formData.role,
     });
     const resolvedRole = roleGuard.role as UserType["role"];
+    const normalizedFullName = normalizeDisplayValue(formData.full_name);
     const sanitizedPhone = sanitizePhoneNumber(formData.phone);
 
     if (!roleGuard.isValid) {
@@ -275,6 +277,7 @@ export default function AdminUserPage() {
     }
 
     setRoleError("");
+    setFormError("");
     const resolvedOutletId =
       resolvedRole === "kasir"
         ? formData.outlet_id ||
@@ -286,13 +289,36 @@ export default function AdminUserPage() {
         : "";
 
     try {
+      const { data: existingUsers, error: duplicateError } = await supabase
+        .from("users")
+        .select("id, full_name, phone")
+        .eq("is_active", true);
+
+      if (duplicateError) throw duplicateError;
+
+      const duplicateMessage = getAdminUserDuplicateMessage(
+        existingUsers || [],
+        {
+          full_name: normalizedFullName,
+          phone: sanitizedPhone,
+        },
+        {
+          excludeId: editingId,
+        },
+      );
+
+      if (duplicateMessage) {
+        setFormError(duplicateMessage);
+        alert(duplicateMessage);
+        return;
+      }
+
       if (isEditMode && editingId) {
         // Update existing user
         const updateData: UserPayload = {
-          full_name: formData.full_name,
+          full_name: normalizedFullName,
           username: formData.username,
           phone: sanitizedPhone,
-          email: formData.email,
           role: resolvedRole,
           outlet_id: resolvedOutletId || null,
           updated_at: new Date().toISOString(),
@@ -314,11 +340,10 @@ export default function AdminUserPage() {
         // Create new user
         const { error } = await supabase.from("users").insert([
           {
-            full_name: formData.full_name,
+            full_name: normalizedFullName,
             username: formData.username,
             password: formData.password,
             phone: sanitizedPhone,
-            email: formData.email,
             role: resolvedRole,
             outlet_id: resolvedOutletId || null,
             is_active: true,
@@ -429,7 +454,6 @@ export default function AdminUserPage() {
                 <th className="px-8 py-5">Nama Lengkap</th>
                 <th className="px-8 py-5">Pengguna</th>
                 <th className="px-8 py-5">No. Telepon</th>
-                <th className="px-8 py-5">Email</th>
                 <th className="px-8 py-5 text-center">Peran</th>
                 <th className="px-8 py-5 text-center">Outlet</th>
                 <th className="px-8 py-5 text-center">Aksi</th>
@@ -463,9 +487,6 @@ export default function AdminUserPage() {
                     </td>
                     <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {u.phone || "-"}
-                    </td>
-                    <td className="px-8 py-5 text-slate-500 text-sm font-medium">
-                      {u.email || "-"}
                     </td>
                     <td className="px-8 py-5 text-center">
                       <span
@@ -549,6 +570,12 @@ export default function AdminUserPage() {
               onSubmit={handleSave}
               className="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar"
             >
+              {formError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700">
+                  {formError}
+                </div>
+              ) : null}
+
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
                   Nama Lengkap *
@@ -558,7 +585,8 @@ export default function AdminUserPage() {
                   placeholder="Contoh: Admin Utama"
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                   value={formData.full_name}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setFormError("");
                     setFormData((prev) => {
                       const nextFullName = e.target.value;
                       const shouldSyncOutlet =
@@ -582,8 +610,8 @@ export default function AdminUserPage() {
                             )
                           : prev.outlet_id,
                       };
-                    })
-                  }
+                    });
+                  }}
                 />
               </div>
 
@@ -664,12 +692,13 @@ export default function AdminUserPage() {
                     placeholder="08xxxxxxxxxx"
                     className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
                     value={formData.phone}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setFormError("");
                       setFormData({
                         ...formData,
                         phone: sanitizePhoneNumber(e.target.value),
-                      })
-                    }
+                      });
+                    }}
                   />
                 </div>
 
@@ -718,21 +747,6 @@ export default function AdminUserPage() {
                     <p className="text-xs font-medium text-rose-500">{roleError}</p>
                   ) : null}
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="email@example.com"
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                />
               </div>
 
               {/* Outlet Selection - Only for Kasir */}

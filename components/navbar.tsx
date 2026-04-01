@@ -15,7 +15,6 @@ import {
   AlertTriangle,
   AlertCircle,
   Store,
-  Search,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -28,6 +27,7 @@ import {
   subscribeToNotifications,
 } from "@/services/notificationService";
 import { AnimatedItem } from "@/components/AnimatedPage";
+import { getMillisecondsUntilNextMinute } from "@/lib/navbarClock.mjs";
 
 // Mapping nama halaman untuk breadcrumb
 const PAGE_LABELS: Record<string, string> = {
@@ -96,8 +96,25 @@ export default function Navbar() {
 
   // Update waktu setiap menit
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
+    let intervalId: number | undefined;
+
+    const syncCurrentTime = () => {
+      setCurrentTime(new Date());
+    };
+
+    syncCurrentTime();
+
+    const timeoutId = window.setTimeout(() => {
+      syncCurrentTime();
+      intervalId = window.setInterval(syncCurrentTime, 60_000);
+    }, getMillisecondsUntilNextMinute(new Date()));
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
   }, []);
 
   // Fetch notifikasi saat pertama kali
@@ -256,13 +273,6 @@ export default function Navbar() {
       {/* Right Side - Actions & User Info */}
       <div className="flex items-center justify-end gap-2 md:gap-4 flex-1">
 
-        {/* Search Global (Optional/Placeholder) */}
-        <div className="hidden lg:flex relative group animate-slideInRight" style={{ animationDelay: '150ms' }}>
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-blue-500 transition-colors">
-            <Search size={16} />
-          </div>
-        </div>
-
         {/* Date & Time */}
         <div className="hidden lg:flex items-center gap-2 text-xs text-gray-500 bg-gray-50/80 px-3 py-2 rounded-xl border border-gray-100 animate-scaleIn" style={{ animationDelay: '200ms' }}>
           <Calendar className="w-3.5 h-3.5 text-gray-400" />
@@ -278,6 +288,7 @@ export default function Navbar() {
             {currentTime.toLocaleTimeString("id-ID", {
               hour: "2-digit",
               minute: "2-digit",
+              hourCycle: "h23",
             })}
           </span>
         </div>
