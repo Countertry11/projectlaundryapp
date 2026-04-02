@@ -295,17 +295,7 @@ export default function LoginPage() {
                     )}
                   </button>
                 </div>
-
-                {/* Password strength indicator */}
-                {formData.password && !error && (
-                  <div className="text-xs text-gray-500 mt-1 animate-fadeIn">
-                    {formData.password.length < 6 ? (
-                      <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={12}/> Kata Sandi terlalu pendek</span>
-                    ) : (
-                      <span className="text-emerald-500 flex items-center gap-1"><Check size={12}/> Kata Sandi Benar</span>
-                    )}
-                  </div>
-                )}
+                
               </AnimatedItem>
 
               {/* Submit Button */}

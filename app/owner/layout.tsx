@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/navbar";
 import { useAuth } from "@/context/AuthContext";
@@ -13,6 +13,8 @@ export default function OwnerLayout({
 }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const isOwnerReportPage = pathname === "/owner/laporan";
 
   // Protect route - only owner can access
   useEffect(() => {
@@ -31,12 +33,30 @@ export default function OwnerLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar />
-      <div className="ml-64 flex-1 flex flex-col">
+    <div
+      className={`flex min-h-screen bg-slate-50 ${
+        isOwnerReportPage ? "owner-report-print-layout" : ""
+      }`}
+    >
+      <div className={isOwnerReportPage ? "owner-report-print-hide" : ""}>
+        <Sidebar />
+      </div>
+      <div
+        className={`ml-64 flex-1 flex flex-col ${
+          isOwnerReportPage ? "owner-report-print-content" : ""
+        }`}
+      >
         {/* Navbar */}
-        <Navbar />
-        <main className="p-8">{children}</main>
+        <div className={isOwnerReportPage ? "owner-report-print-hide" : ""}>
+          <Navbar />
+        </div>
+        <main
+          className={`p-8 ${
+            isOwnerReportPage ? "owner-report-print-main" : ""
+          }`}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

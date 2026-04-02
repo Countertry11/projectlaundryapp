@@ -376,7 +376,7 @@ export default function OutletPage() {
 
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Email
+                  Email (opsional)
                 </label>
                 <input
                   type="email"

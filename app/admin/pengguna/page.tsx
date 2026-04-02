@@ -483,7 +483,7 @@ export default function AdminUserPage() {
                       {u.full_name}
                     </td>
                     <td className="px-8 py-5 text-blue-600 font-semibold italic">
-                      @{u.username}
+                      {u.username}
                     </td>
                     <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {u.phone || "-"}
