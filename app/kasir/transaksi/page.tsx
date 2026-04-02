@@ -35,6 +35,15 @@ import {
   getDefaultKasirDueDateInput,
 } from "@/lib/kasirTransactionForm.mjs";
 import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
+import {
+  DELAY_DISCOUNT_PERCENT,
+  getDelayDiscountPercent,
+  hasDelayDiscountByDate,
+} from "@/lib/transactionDelayDiscount.mjs";
+import {
+  buildTransactionFinancialSummary,
+  getTransactionDelayDiscountUpdate,
+} from "@/lib/transactionFinancialSummary.mjs";
 import { normalizeTransactionDueDateValue } from "@/lib/transactionDueDate.mjs";
 import {
   Customer,
@@ -98,8 +107,6 @@ const jenisLabels: Record<string, string> = {
   lain: "Lainnya",
 };
 
-const DELAY_DISCOUNT_PERCENT = 5;
-const DELAY_DISCOUNT_DAYS = 1;
 const AUTO_TAX_PERCENT = 10;
 
 const statusSteps: Array<{
@@ -131,32 +138,6 @@ function createInitialFormData(
   ) as TransactionFormData;
 }
 
-function hasDelayDiscountByDate(
-  transactionDateValue: string | Date | null | undefined,
-  dueDateValue: string | Date | null | undefined,
-) {
-  if (!transactionDateValue || !dueDateValue) return false;
-
-  const transactionDate = new Date(transactionDateValue);
-  const dueDate = new Date(dueDateValue);
-
-  if (
-    Number.isNaN(transactionDate.getTime()) ||
-    Number.isNaN(dueDate.getTime())
-  ) {
-    return false;
-  }
-
-  const baseDueDate = new Date(
-    transactionDate.getTime() + 3 * 24 * 60 * 60 * 1000,
-  );
-
-  return (
-    dueDate.getTime() - baseDueDate.getTime() >=
-    DELAY_DISCOUNT_DAYS * 24 * 60 * 60 * 1000
-  );
-}
-
 export default function TransaksiKasir() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -169,6 +150,9 @@ export default function TransaksiKasir() {
   const [dueDateDraft, setDueDateDraft] = useState("");
   const [minimumDueDateInput, setMinimumDueDateInput] = useState(() =>
     getMinimumAdminTransactionDateInput(new Date()),
+  );
+  const [detailReferenceTime, setDetailReferenceTime] = useState(() =>
+    Date.now(),
   );
   const [minimumDueDateDraft, setMinimumDueDateDraft] = useState(() =>
     toWibDateTimeLocalValue(new Date()),
@@ -188,45 +172,40 @@ export default function TransaksiKasir() {
   const kasirOutletAccess = resolveKasirOutletAccess(outlets, userOutletId);
   const hasAssignedOutlet = kasirOutletAccess.hasAssignedOutlet;
 
-  function hasDelayDiscount(trx: Transaction & { customer?: Customer | undefined }) {
-    return hasDelayDiscountByDate(trx.transaction_date, trx.due_date);
+  function hasDelayDiscount(
+    trx: Transaction & { customer?: Customer | undefined },
+    referenceDate: string | Date = new Date(),
+  ) {
+    return hasDelayDiscountByDate(referenceDate, trx.due_date);
   }
 
   function getTransactionDiscountPercent(
     trx: Transaction & { customer?: Customer | undefined },
+    referenceDate: string | Date = new Date(),
   ) {
-    return hasDelayDiscount(trx) ? DELAY_DISCOUNT_PERCENT : 0;
+    return getDelayDiscountPercent(referenceDate, trx.due_date);
   }
 
   async function syncDelayDiscounts(
     transactionRows: Array<Transaction & { customer?: Customer | undefined }>,
   ) {
     const normalizedRows = [...transactionRows];
+    const referenceDate = new Date();
 
     for (let index = 0; index < normalizedRows.length; index += 1) {
       const trx = normalizedRows[index];
-      const expectedDiscount = getTransactionDiscountPercent(trx);
-      const currentDiscount = Number(trx.discount || 0);
+      const expectedDiscount = getTransactionDiscountPercent(trx, referenceDate);
+      const updatePayload = getTransactionDelayDiscountUpdate(
+        trx,
+        expectedDiscount,
+      );
 
-      if (currentDiscount === expectedDiscount) continue;
-
-      const taxAmount = Number(trx.tax || 0);
-      const totalAmount = Number(trx.total_amount || 0);
-      const currentGrandTotal = Number(trx.grand_total || 0);
-      const inferredAdditionalCost =
-        currentGrandTotal -
-        (totalAmount - totalAmount * (currentDiscount / 100) + taxAmount);
-      const nextGrandTotal =
-        totalAmount -
-        totalAmount * (expectedDiscount / 100) +
-        taxAmount +
-        Math.max(0, inferredAdditionalCost);
+      if (!updatePayload) continue;
 
       const { error } = await supabase
         .from("transactions")
         .update({
-          discount: expectedDiscount,
-          grand_total: nextGrandTotal,
+          ...updatePayload,
           updated_at: new Date().toISOString(),
         })
         .eq("id", trx.id);
@@ -238,8 +217,7 @@ export default function TransaksiKasir() {
 
       normalizedRows[index] = {
         ...trx,
-        discount: expectedDiscount,
-        grand_total: nextGrandTotal,
+        ...updatePayload,
       };
     }
 
@@ -320,15 +298,60 @@ export default function TransaksiKasir() {
 
   useEffect(() => {
     if (!selectedTransaction) return;
+    let cancelled = false;
 
-    const syncMinimumDueDate = () => {
-      setMinimumDueDateDraft(toWibDateTimeLocalValue(new Date()));
+    const syncDetailTimingAndDiscount = async () => {
+      const referenceDate = new Date();
+      setMinimumDueDateDraft(toWibDateTimeLocalValue(referenceDate));
+      setDetailReferenceTime(referenceDate.getTime());
+
+      const expectedDiscount = getDelayDiscountPercent(
+        referenceDate,
+        selectedTransaction.due_date,
+      );
+      const updatePayload = getTransactionDelayDiscountUpdate(
+        selectedTransaction,
+        expectedDiscount,
+      );
+
+      if (!updatePayload) return;
+
+      const { error } = await supabase
+        .from("transactions")
+        .update({
+          ...updatePayload,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedTransaction.id);
+
+      if (error) {
+        console.error("Error syncing selected transaction delay discount:", error);
+        return;
+      }
+
+      if (cancelled) return;
+
+      setTransactions((prev) =>
+        prev.map((trx) =>
+          trx.id === selectedTransaction.id ? { ...trx, ...updatePayload } : trx,
+        ),
+      );
+      setSelectedTransaction((prev) =>
+        prev && prev.id === selectedTransaction.id
+          ? { ...prev, ...updatePayload }
+          : prev,
+      );
     };
 
-    syncMinimumDueDate();
-    const intervalId = window.setInterval(syncMinimumDueDate, 30 * 1000);
+    void syncDetailTimingAndDiscount();
+    const intervalId = window.setInterval(() => {
+      void syncDetailTimingAndDiscount();
+    }, 30 * 1000);
 
-    return () => window.clearInterval(intervalId);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, [selectedTransaction]);
 
   useEffect(() => {
@@ -469,9 +492,7 @@ export default function TransaksiKasir() {
       const dueDate = formData.due_date
         ? toWibDatabaseDateTime(formData.due_date)
         : toWibDatabaseDateTime(getDefaultKasirDueDateInput(new Date()));
-      const discountPercent = hasDelayDiscountByDate(placedAt, dueDate)
-        ? DELAY_DISCOUNT_PERCENT
-        : 0;
+      const discountPercent = getDelayDiscountPercent(placedAt, dueDate);
       const additionalCost = Number(formData.additional_cost || 0);
       const { subtotal, taxAmount, grandTotal: summaryGrandTotal } =
         calculateTransactionSummary(
@@ -597,25 +618,17 @@ export default function TransaksiKasir() {
         due_date: nextDueDate,
       };
       const expectedDiscount = getTransactionDiscountPercent(updatedTransaction);
-      const currentDiscount = Number(selectedTransaction.discount || 0);
-      const totalAmount = Number(selectedTransaction.total_amount || 0);
-      const taxAmount = Number(selectedTransaction.tax || 0);
-      const currentGrandTotal = Number(selectedTransaction.grand_total || 0);
-      const inferredAdditionalCost =
-        currentGrandTotal -
-        (totalAmount - totalAmount * (currentDiscount / 100) + taxAmount);
-      const nextGrandTotal =
-        totalAmount -
-        totalAmount * (expectedDiscount / 100) +
-        taxAmount +
-        Math.max(0, inferredAdditionalCost);
+      const updatePayload =
+        getTransactionDelayDiscountUpdate(updatedTransaction, expectedDiscount) || {
+          discount: Number(selectedTransaction.discount || 0),
+          grand_total: Number(selectedTransaction.grand_total || 0),
+        };
 
       const { error } = await supabase
         .from("transactions")
         .update({
           due_date: nextDueDate,
-          discount: expectedDiscount,
-          grand_total: nextGrandTotal,
+          ...updatePayload,
           updated_at: new Date().toISOString(),
         })
         .eq("id", id);
@@ -625,8 +638,7 @@ export default function TransaksiKasir() {
       syncSelectedTransaction({
         id,
         due_date: nextDueDate,
-        discount: expectedDiscount,
-        grand_total: nextGrandTotal,
+        ...updatePayload,
       });
     } catch (error: unknown) {
       const message =
@@ -695,12 +707,7 @@ export default function TransaksiKasir() {
 
   const dueDatePreview =
     formData.due_date || getDefaultKasirDueDateInput(new Date());
-  const draftDiscountPercent = hasDelayDiscountByDate(
-    new Date(),
-    dueDatePreview,
-  )
-    ? DELAY_DISCOUNT_PERCENT
-    : 0;
+  const draftDiscountPercent = getDelayDiscountPercent(new Date(), dueDatePreview);
   const additionalCostPreview = Number(formData.additional_cost || 0);
   const {
     subtotal: subtotalPreview,
@@ -720,12 +727,28 @@ export default function TransaksiKasir() {
   const nextStatus = selectedTransaction
     ? getNextStatus(selectedTransaction.status)
     : null;
+  const detailReferenceDate = new Date(detailReferenceTime);
   const selectedTransactionDiscountPercent = selectedTransaction
-    ? getTransactionDiscountPercent(selectedTransaction)
+    ? getTransactionDiscountPercent(selectedTransaction, detailReferenceDate)
     : 0;
   const selectedTransactionDelayDiscount = selectedTransaction
-    ? hasDelayDiscount(selectedTransaction)
+    ? hasDelayDiscount(selectedTransaction, detailReferenceDate)
     : false;
+  const selectedTransactionLiveUpdate = selectedTransaction
+    ? getTransactionDelayDiscountUpdate(
+        selectedTransaction,
+        selectedTransactionDiscountPercent,
+      )
+    : null;
+  const selectedTransactionView = selectedTransaction
+    ? {
+        ...selectedTransaction,
+        ...(selectedTransactionLiveUpdate || {}),
+      }
+    : null;
+  const selectedTransactionFinancialSummary = selectedTransactionView
+    ? buildTransactionFinancialSummary(selectedTransactionView)
+    : null;
   const pickupBlocked =
     selectedTransaction?.status === "ready" &&
     selectedTransaction.payment_status !== "paid";
@@ -1378,9 +1401,53 @@ export default function TransaksiKasir() {
                     </div>
                   </div>
                   <div className="md:text-right">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Total Biaya</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Total Tagihan</div>
                     <div className="text-2xl font-black text-blue-700">
-                      {formatRupiah(selectedTransaction.grand_total)}
+                      {formatRupiah(selectedTransactionFinancialSummary?.grandTotal)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-3xl border border-white/70 bg-white/70 p-4 backdrop-blur-sm">
+                  <div className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Ringkasan Tagihan
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Subtotal</span>
+                      <span className="font-semibold text-slate-800">
+                        {formatRupiah(selectedTransactionFinancialSummary?.subtotal)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-emerald-600">
+                      <span>{`Diskon (${selectedTransactionDiscountPercent}%)`}</span>
+                      <span className="font-semibold">
+                        - {formatRupiah(selectedTransactionFinancialSummary?.discountAmount)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Subtotal Setelah Diskon</span>
+                      <span className="font-semibold text-slate-800">
+                        {formatRupiah(selectedTransactionFinancialSummary?.subtotalAfterDiscount)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-amber-600">
+                      <span>Pajak</span>
+                      <span className="font-semibold">
+                        + {formatRupiah(selectedTransactionFinancialSummary?.taxAmount)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-purple-600">
+                      <span>Biaya Tambahan</span>
+                      <span className="font-semibold">
+                        + {formatRupiah(selectedTransactionFinancialSummary?.additionalCost)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-blue-100 pt-3 text-blue-700">
+                      <span className="font-bold">Total Tagihan</span>
+                      <span className="text-lg font-black">
+                        {formatRupiah(selectedTransactionFinancialSummary?.grandTotal)}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1392,8 +1459,8 @@ export default function TransaksiKasir() {
                     Estimasi Pencucian
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Ubah tanggal estimasi. Jika diundur minimal 1 hari dari
-                    estimasi awal, diskon telat 5% akan berlaku.
+                    Diskon otomatis {DELAY_DISCOUNT_PERCENT}% langsung aktif saat transaksi dibuat.
+                    Total tagihan akan langsung dihitung dengan potongan diskon tersebut.
                   </p>
                 </div>
 
@@ -1438,7 +1505,7 @@ export default function TransaksiKasir() {
                     }`}
                   >
                     <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                      Diskon Telat 5%
+                      {`Diskon Otomatis ${DELAY_DISCOUNT_PERCENT}%`}
                     </div>
                     <div
                       className={`text-sm font-bold ${

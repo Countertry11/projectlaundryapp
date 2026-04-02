@@ -1,0 +1,19 @@
+
+> laundryukk-app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.101:3000
+- Environments: .env.local
+
+✓ Starting...
+Creating turbopack project { dir: 'D:\\Tugas MPKK\\UKK\\agil\\projectlaundryapp', testMode: true }
+✓ Ready in 1135ms
+URL: https://yxkgegcgtljsgjhuapey.supabase.co
+ GET /kasir/transaksi 200 in 1287ms (compile: 917ms, render: 370ms)
+✓ Compiled in 82ms
+✓ Compiled in 86ms
+✓ Compiled in 66ms
+URL: https://yxkgegcgtljsgjhuapey.supabase.co
+ GET /kasir/transaksi 200 in 1962ms (compile: 53ms, render: 1909ms)
