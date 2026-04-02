@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatCurrentReportDate } from "@/lib/reportDateFormat.mjs";
 
 interface Column {
   key: string;
@@ -39,11 +40,7 @@ export function exportToPDF(options: ExportPDFOptions): void {
   // Add date
   doc.setFontSize(10);
   doc.setTextColor(100);
-  const dateStr = new Date().toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const dateStr = formatCurrentReportDate(new Date());
   doc.text(`Tanggal: ${dateStr}`, 14, subtitle ? 38 : 30);
 
   // Prepare table data
@@ -124,11 +121,7 @@ export function exportMultiTableToPDF(options: MultiTableOptions): void {
 
   doc.setFontSize(10);
   doc.setTextColor(100);
-  const dateStr = new Date().toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const dateStr = formatCurrentReportDate(new Date());
   doc.text(`Tanggal: ${dateStr}`, 14, subtitle ? 38 : 30);
 
   let currentY = subtitle ? 48 : 40;

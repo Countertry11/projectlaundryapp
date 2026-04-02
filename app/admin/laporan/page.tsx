@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   FaChartBar,
   FaCalendar,
@@ -11,10 +11,16 @@ import {
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  filterRowsByReportDate,
+  getReportDateFilterYearOptions,
+} from "@/lib/reportDateFilters.mjs";
+import { formatReportDate } from "@/lib/reportDateFormat.mjs";
 import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
 import Table from "@/components/table";
 import Card from "@/components/card";
+import ReportDateFilters from "@/components/ReportDateFilters";
 import { AnimatedPage, StaggeredList, AnimatedItem } from "@/components/AnimatedPage";
 import ReportExportPdfButton from "@/components/ReportExportPdfButton";
 
@@ -30,6 +36,14 @@ interface Outlet {
   name: string;
 }
 
+interface ReportTransactionRow {
+  id: string;
+  transaction_date?: string;
+  grand_total?: number | string;
+  payment_status?: string;
+  outlet_id?: string;
+}
+
 export default function LaporanAdminPage() {
   const router = useRouter();
 
@@ -38,21 +52,20 @@ export default function LaporanAdminPage() {
   const [exporting, setExporting] = useState(false);
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [selectedOutlet, setSelectedOutlet] = useState<string | "all">("all");
+  const [selectedDay, setSelectedDay] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [selectedYear, setSelectedYear] = useState("all");
+  const [yearOptions, setYearOptions] = useState<string[]>([]);
 
   const [totalPendapatan, setTotalPendapatan] = useState(0);
   const [totalTransaksi, setTotalTransaksi] = useState(0);
 
-  useEffect(() => {
-    fetchOutlets();
-    fetchTransactions();
-  }, [selectedOutlet]);
-
-  async function fetchOutlets() {
+  const fetchOutlets = useCallback(async () => {
     const { data } = await supabase.from("outlets").select("id, name");
     setOutlets(data || []);
-  }
+  }, []);
 
-  async function fetchTransactions() {
+  const fetchTransactions = useCallback(async () => {
     setLoading(true);
     try {
       let query = supabase
@@ -67,19 +80,24 @@ export default function LaporanAdminPage() {
       const { data, error } = await query;
 
       if (error) throw error;
+      const rows = ((data || []) as ReportTransactionRow[]);
+      setYearOptions(getReportDateFilterYearOptions(rows));
+      const filteredRows = filterRowsByReportDate(
+        rows,
+        {
+          day: selectedDay,
+          month: selectedMonth,
+          year: selectedYear,
+        },
+      ) as ReportTransactionRow[];
 
       // Calculate totals
       let pendapatan = 0;
-      let belumDibayar = 0;
       const grouped: Record<string, LaporanHarian> = {};
 
-      (data || []).forEach((trx) => {
+      filteredRows.forEach((trx) => {
         const tanggal = trx.transaction_date?.split("T")[0] || "Unknown";
         pendapatan += Number(trx.grand_total) || 0;
-
-        if (trx.payment_status !== "paid") {
-          belumDibayar += Number(trx.grand_total) || 0;
-        }
 
         if (!grouped[tanggal]) {
           grouped[tanggal] = {
@@ -97,14 +115,19 @@ export default function LaporanAdminPage() {
       });
 
       setTotalPendapatan(pendapatan);
-      setTotalTransaksi(data?.length || 0);
+      setTotalTransaksi(filteredRows.length);
       setLaporanHarian(Object.values(grouped));
     } catch (error) {
       console.error("Error fetching transactions:", error);
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedDay, selectedMonth, selectedOutlet, selectedYear]);
+
+  useEffect(() => {
+    void fetchOutlets();
+    void fetchTransactions();
+  }, [fetchOutlets, fetchTransactions]);
 
   // Fungsi Export PDF
   function handleExportPDF() {
@@ -121,7 +144,7 @@ export default function LaporanAdminPage() {
           : outlets.find((o) => o.id === selectedOutlet)?.name || "Unknown";
 
       exportToPDF({
-        title: "Laporan Harian Laundry",
+        title: "Laporan Data Laundry",
         subtitle: `Outlet: ${outletName} | Total Pendapatan: ${formatRupiah(totalPendapatan)} | Total Transaksi: ${totalTransaksi}`,
         filename: `laporan-harian-${new Date().toISOString().split("T")[0]}`,
         columns: [
@@ -132,6 +155,7 @@ export default function LaporanAdminPage() {
         ],
         data: laporanHarian as unknown as Record<string, unknown>[],
         formatters: {
+          tanggal: (v: unknown) => formatReportDate(String(v || "")),
           totalPendapatan: (v: unknown) => formatRupiah(Number(v)),
           totalBelumDibayar: (v: unknown) => formatRupiah(Number(v)),
         },
@@ -151,7 +175,9 @@ export default function LaporanAdminPage() {
       key: "tanggal",
       label: "Tanggal",
       render: (v: unknown) => (
-        <span className="font-medium text-gray-500">{String(v)}</span>
+        <span className="font-medium text-gray-500">
+          {formatReportDate(String(v || ""))}
+        </span>
       ),
     },
     { key: "totalTransaksi", label: "Transaksi" },
@@ -215,6 +241,16 @@ export default function LaporanAdminPage() {
               </select>
             </div>
 
+            <ReportDateFilters
+              day={selectedDay}
+              month={selectedMonth}
+              year={selectedYear}
+              yearOptions={yearOptions}
+              onDayChange={setSelectedDay}
+              onMonthChange={setSelectedMonth}
+              onYearChange={setSelectedYear}
+            />
+
             {/* Export Button */}
             <ReportExportPdfButton
               onClick={handleExportPDF}
@@ -260,7 +296,7 @@ export default function LaporanAdminPage() {
         <AnimatedItem animation="fadeInUp" style={{ animationDelay: '500ms' }}>
           <Card
             icon={<FaCalendarAlt className="text-blue-600" />}
-            title="Detail Laporan Harian"
+            title="Laporan Data Laundry"
             noPadding
             className="rounded-3xl shadow-xl overflow-hidden border-none"
           >

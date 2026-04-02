@@ -1,14 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FaChartBar, FaCalendar, FaStore } from "react-icons/fa";
 import { Loader2, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { resolveKasirOutletAccess } from "@/lib/kasirOutletAccess.mjs";
+import {
+  filterRowsByReportDate,
+  getReportDateFilterYearOptions,
+} from "@/lib/reportDateFilters.mjs";
+import { formatReportDate } from "@/lib/reportDateFormat.mjs";
 import { formatRupiah } from "@/utils";
 import { exportToPDF } from "@/utils/exportPdf";
 import { AnimatedPage } from "@/components/AnimatedPage";
+import ReportDateFilters from "@/components/ReportDateFilters";
 import Table from "@/components/table";
 import Card, { StatsCard } from "@/components/card";
 import ReportExportPdfButton from "@/components/ReportExportPdfButton";
@@ -24,6 +30,14 @@ interface OutletInfo {
   name: string;
 }
 
+interface ReportTransactionRow {
+  id: string;
+  transaction_date?: string;
+  grand_total?: number | string;
+  payment_status?: string;
+  outlet_id?: string;
+}
+
 export default function LaporanKasirPage() {
   const { user } = useAuth();
   const [laporan, setLaporan] = useState<LaporanHarian[]>([]);
@@ -33,12 +47,12 @@ export default function LaporanKasirPage() {
   const [totalTransaksi, setTotalTransaksi] = useState(0);
   const [outletInfo, setOutletInfo] = useState<OutletInfo | null>(null);
   const [noOutletAssigned, setNoOutletAssigned] = useState(false);
+  const [selectedDay, setSelectedDay] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [selectedYear, setSelectedYear] = useState("all");
+  const [yearOptions, setYearOptions] = useState<string[]>([]);
 
-  useEffect(() => {
-    loadOutletAndLaporan();
-  }, [user]);
-
-  const loadOutletAndLaporan = async () => {
+  const loadOutletAndLaporan = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -86,12 +100,22 @@ export default function LaporanKasirPage() {
         .order("transaction_date", { ascending: false });
 
       if (error) throw error;
+      const rows = ((data || []) as ReportTransactionRow[]);
+      setYearOptions(getReportDateFilterYearOptions(rows));
+      const filteredRows = filterRowsByReportDate(
+        rows,
+        {
+          day: selectedDay,
+          month: selectedMonth,
+          year: selectedYear,
+        },
+      ) as ReportTransactionRow[];
 
       // Group by date
       const grouped: Record<string, LaporanHarian> = {};
       let totalPend = 0;
 
-      (data || []).forEach((trx) => {
+      filteredRows.forEach((trx) => {
         const tanggal = trx.transaction_date?.split("T")[0] || "Unknown";
         totalPend += Number(trx.grand_total) || 0;
 
@@ -107,14 +131,18 @@ export default function LaporanKasirPage() {
       });
 
       setTotalPendapatan(totalPend);
-      setTotalTransaksi(data?.length || 0);
+      setTotalTransaksi(filteredRows.length);
       setLaporan(Object.values(grouped));
     } catch (error) {
       console.error("Error loading laporan:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDay, selectedMonth, selectedYear, user]);
+
+  useEffect(() => {
+    void loadOutletAndLaporan();
+  }, [loadOutletAndLaporan]);
 
   // Fungsi Export PDF
   function handleExportPDF() {
@@ -136,6 +164,7 @@ export default function LaporanKasirPage() {
         ],
         data: laporan as unknown as Record<string, unknown>[],
         formatters: {
+          tanggal: (v: unknown) => formatReportDate(String(v || "")),
           totalPendapatan: (v: unknown) => formatRupiah(Number(v)),
         },
       });
@@ -155,7 +184,9 @@ export default function LaporanKasirPage() {
       label: "Tanggal",
       sortable: true,
       render: (value: unknown) => (
-        <span className="font-medium">{String(value)}</span>
+        <span className="font-medium">
+          {formatReportDate(String(value || ""))}
+        </span>
       ),
     },
     { key: "totalTransaksi", label: "Transaksi", sortable: true },
@@ -212,6 +243,16 @@ export default function LaporanKasirPage() {
         />
       </div>
 
+      <ReportDateFilters
+        day={selectedDay}
+        month={selectedMonth}
+        year={selectedYear}
+        yearOptions={yearOptions}
+        onDayChange={setSelectedDay}
+        onMonthChange={setSelectedMonth}
+        onYearChange={setSelectedYear}
+      />
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <StatsCard
           title="Total Pendapatan"
@@ -227,7 +268,7 @@ export default function LaporanKasirPage() {
         />
       </div>
 
-      <Card icon={<FaCalendar />} title="Laporan Harian" noPadding>
+      <Card icon={<FaCalendar />} title="Laporan Data Laundry" noPadding>
         {loading ? (
           <div className="py-20 flex justify-center">
             <Loader2 className="animate-spin text-blue-500" size={40} />

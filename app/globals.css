@@ -237,3 +237,44 @@ body {
 .hover-glow:hover {
   box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
 }
+
+@media print {
+  .owner-report-print-layout {
+    display: block !important;
+    min-height: auto !important;
+    background: white !important;
+  }
+
+  .owner-report-print-hide {
+    display: none !important;
+  }
+
+  .owner-report-print-content {
+    margin-left: 0 !important;
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .owner-report-print-main {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+  }
+
+  .owner-report-print-page {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+  }
+
+  .owner-report-print-region {
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  .owner-report-print-only {
+    display: block !important;
+  }
+}

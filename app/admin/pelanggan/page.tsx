@@ -35,7 +35,6 @@ export default function PelangganPage() {
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
-    email: "",
     address: "",
   });
 
@@ -61,7 +60,7 @@ export default function PelangganPage() {
   }
 
   function resetForm() {
-    setFormData({ name: "", phone: "", email: "", address: "" });
+    setFormData({ name: "", phone: "", address: "" });
     setIsEditMode(false);
     setEditingId(null);
     setFormError("");
@@ -77,7 +76,6 @@ export default function PelangganPage() {
     setFormData({
       name: customer.name || "",
       phone: sanitizePhoneNumber(customer.phone),
-      email: customer.email || "",
       address: customer.address || "",
     });
     setEditingId(customer.id);
@@ -228,7 +226,6 @@ export default function PelangganPage() {
               <tr>
                 <th className="px-8 py-5">Nama</th>
                 <th className="px-8 py-5">Telepon</th>
-                <th className="px-8 py-5">Email</th>
                 <th className="px-8 py-5">Alamat</th>
                 <th className="px-8 py-5 text-center">Aksi</th>
               </tr>
@@ -258,9 +255,6 @@ export default function PelangganPage() {
                     </td>
                     <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {item.phone}
-                    </td>
-                    <td className="px-8 py-5 text-slate-500 text-sm font-medium">
-                      {item.email || "-"}
                     </td>
                     <td className="px-8 py-5 text-slate-500 text-sm font-medium">
                       {item.address || "-"}
@@ -366,21 +360,6 @@ export default function PelangganPage() {
                         phone: sanitizePhoneNumber(e.target.value),
                       });
                     }
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-1">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  placeholder="email@example.com"
-                  className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-sm transition-all font-medium"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
                   }
                 />
               </div>
